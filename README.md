@@ -1,3 +1,18 @@
+[![CI](https://github.com/Albrall/turjuman/actions/workflows/ci.yml/badge.svg)](https://github.com/Albrall/turjuman/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+# Tarjuman / ترجمان — AI Arabic subtitles for Stremio & Nuvio
+
+A self-hosted Stremio add-on that finds the subtitle matching your file and translates it to Arabic with **your own** AI provider key. Runs as a Node server or a single Cloudflare Worker + KV. No key is ever stored on the server.
+
+- **Quick start:** `npm ci && npm test && npm run build && npm start` — then open `http://localhost:7000/configure`.
+- **Cloudflare:** `CLOUDFLARE_API_TOKEN=… node deploy.mjs` (see [SECURITY.md](SECURITY.md)).
+- **Status:** 251/251 tests green · CI builds the bundle and attaches `tarjuman-cloudflare.zip` to every `v*` release.
+- **Docs:** [incident report](docs/INCIDENT-0.9.8-ar.md) · [code review (ar)](docs/REVIEW-ar.md) · [roadmap (ar)](docs/ROADMAP-ar.md) · [changelog](CHANGELOG.md).
+
+> Repo name is `turjuman`; the add-on id is `community.tarjuman.arabic-ai` and the Worker is `tarjuman`.
+
+---
+
 # ترجمان — ترجمة عربية بالذكاء الاصطناعي لـ Stremio و Nuvio
 
 إضافة ترجمة: تجلب ترجمة الفيلم أو الحلقة المطابقة لملفك، وتترجمها إلى العربية بنموذج ذكاء اصطناعي تختاره أنت وبمفتاحك الخاص.

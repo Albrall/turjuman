@@ -1,0 +1,26 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.15'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+        env:
+          CI: 'true'
+      - run: npm run build
+      - name: Verify the zip that users upload to Cloudflare
+        run: python3 -c "import zipfile; z=zipfile.ZipFile('cloudflare/tarjuman-cloudflare.zip'); assert z.testzip() is None; assert z.namelist()==['_worker.js']"
+      - name: Publish the release with the zip attached
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" cloudflare/tarjuman-cloudflare.zip --title "$GITHUB_REF_NAME" --generate-notes

@@ -18,11 +18,14 @@ jobs:
           CI: 'true'
       - name: Build the Cloudflare bundle and the Pages zip
         run: npm run build
-      - name: The bundle is reproducible from the sources
+      - name: The committed bundle is reproducible from the sources
         run: |
-          cp cloudflare/_worker.js /tmp/before.js
           npm run build
-          cmp /tmp/before.js cloudflare/_worker.js
+          git diff --exit-code -- cloudflare/_worker.js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarjuman-cloudflare
+          path: cloudflare/tarjuman-cloudflare.zip
       - name: The uploaded zip exists and is valid
         run: python3 -c "import zipfile; z=zipfile.ZipFile('cloudflare/tarjuman-cloudflare.zip'); assert z.testzip() is None; assert z.namelist()==['_worker.js']"
       - name: No credentials committed
