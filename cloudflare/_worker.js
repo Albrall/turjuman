@@ -2425,7 +2425,7 @@ var fetchExtraSubtitle = async (url, cfg, settings, urls = {}) => {
 };
 
 // lib/app.mjs
-var VERSION = "0.9.8.2";
+var VERSION = "0.9.8.3";
 var CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "GET, HEAD, POST, OPTIONS" };
 var VTT = "text/vtt; charset=utf-8";
 var HEADER = "WEBVTT\n\n";
@@ -2530,13 +2530,17 @@ var createApp = (platform) => {
   const fast = () => env("FAST_RETRIES") === "1";
   const llmOf = (cfg) => ({ baseUrl: cfg.b, apiKey: cfg.k, model: cfg.m, effort: cfg.r, concurrency: Math.min(cfg.cc, limits.maxConcurrency) });
   const backupFor = (cfg) => cfg.fb && cfg.fk && cfg.fm ? { baseUrl: cfg.fb, apiKey: cfg.fk, model: cfg.fm, effort: cfg.r, concurrency: 1 } : null;
-  const reportAdd = async (delta) => {
-    if (!store.getReport || !store.putReport) return;
-    const key = monthKey();
-    try {
-      await store.putReport(key, mergeReport(await store.getReport(key), delta));
-    } catch {
-    }
+  let reportQueue = Promise.resolve();
+  const reportAdd = (delta) => {
+    if (!store.getReport || !store.putReport) return Promise.resolve();
+    reportQueue = reportQueue.then(async () => {
+      const key = monthKey();
+      try {
+        await store.putReport(key, mergeReport(await store.getReport(key), delta));
+      } catch {
+      }
+    });
+    return reportQueue;
   };
   const countHit = () => reportAdd({ hits: 1 }).catch(() => {
   });

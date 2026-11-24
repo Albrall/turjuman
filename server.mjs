@@ -16,6 +16,18 @@ const logo = await readFile(join(HERE, 'public', 'logo.png')).catch(() => null)
 const cacheDir = () => process.env.CACHE_DIR || join(process.cwd(), 'cache')
 const MAX_FILES = 400
 
+// Write to a uniquely named temp file, then rename: a reader can never see a half-written file.
+// The temp name must NOT start with a real prefix (report-/series-/…), so a reader listing the
+// directory does not pick it up instead of the finished file.
+let writes = 0
+const writeAtomic = async (file, data) => {
+  const dir = dirname(file)
+  await mkdir(dir, { recursive: true })
+  const tmp = join(dir, `.tmp-${process.pid}-${++writes}`)
+  await writeFile(tmp, data)
+  await rename(tmp, file)
+}
+
 // Finished translations are kept as files, so that watching again costs nothing
 const store = {
   kind: 'disk',
@@ -25,8 +37,7 @@ const store = {
     const dir = cacheDir()
     await mkdir(dir, { recursive: true })
     const file = join(dir, `${key}.vtt`)
-    await writeFile(`${file}.tmp`, vtt)
-    await rename(`${file}.tmp`, file)
+    await writeAtomic(file, vtt)
     const files = (await readdir(dir)).filter(name => name.endsWith('.vtt'))
     if (files.length <= MAX_FILES) return
     const aged = await Promise.all(files.map(async name => ({ name, at: (await stat(join(dir, name))).mtimeMs })))
@@ -38,16 +49,12 @@ const store = {
   // The name dictionary of a show (ideas 14 + 17): one small JSON per show
   getNames: key => readFile(join(cacheDir(), `series-${key}.json`), 'utf8').then(JSON.parse, () => null),
   async putNames(key, data) {
-    const dir = cacheDir()
-    await mkdir(dir, { recursive: true })
-    await writeFile(join(dir, `series-${key}.json`), JSON.stringify(data))
+    await writeAtomic(join(cacheDir(), `series-${key}.json`), JSON.stringify(data))
   },
   // The monthly ledger (idea 38): one small JSON per month, kept next to the translations
   getReport: key => readFile(join(cacheDir(), `report-${key}.json`), 'utf8').then(JSON.parse, () => null),
   async putReport(key, data) {
-    const dir = cacheDir()
-    await mkdir(dir, { recursive: true })
-    await writeFile(join(dir, `report-${key}.json`), JSON.stringify(data))
+    await writeAtomic(join(cacheDir(), `report-${key}.json`), JSON.stringify(data))
   },
   probe: async () => true,
 }
