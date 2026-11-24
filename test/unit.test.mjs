@@ -7,9 +7,10 @@ import { failure, freshCaps, loosen, readMap } from '../lib/llm.mjs'
 import { pickLanguage, rank, sourceSettings } from '../lib/sources.mjs'
 import { buildVtt, parseSubtitle, stamp, tidy } from '../lib/subs.mjs'
 import { BRIEF, fake, sampleSrt, startAi } from './mocks.mjs'
-import { byName, embeddedVerdict, markersIn, parseVideoId, verdictFor } from '../lib/episode.mjs'
+import { byName, embeddedVerdict, markersIn, packRange, parseVideoId, verdictFor } from '../lib/episode.mjs'
 import { applySeriesNames, learnSeriesNames } from '../lib/series.mjs'
 import { isSongCue } from '../lib/subs.mjs'
+import { PACK_MIN_CUES, episodeLabel, packNotice, selectEpisode } from '../lib/pack.mjs'
 import { unzipSubtitle, settleWithin, EXTRA_DEADLINE_MS } from '../lib/extraSources.mjs'
 import { strToU8, zipSync } from 'fflate'
 
@@ -181,7 +182,7 @@ describe('settings', () => {
   const base = { b: 'https://api.example.com/v1/', k: ' key ', m: ' model-x ' }
 
   test('round trip through the address, with defaults filled in', () => {
-    assert.deepEqual(decodeConfig(encodeConfig(base)), { b: 'https://api.example.com/v1', k: 'key', m: 'model-x', r: '', src: 'eng', any: true, warm: true, pn: true, sdh: true, nm: true, cf: true, gd: true, nt: true, na: false, ca: false, ex: '', fb: '', fk: '', fm: '', sd: '', jm: '', n: 2, wait: 50, bs: 80, cc: 4 })
+    assert.deepEqual(decodeConfig(encodeConfig(base)), { b: 'https://api.example.com/v1', k: 'key', m: 'model-x', r: '', src: 'eng', any: true, warm: true, pn: true, sdh: true, nm: true, cf: true, gd: true, pk: true, nt: true, na: false, ca: false, ex: '', fb: '', fk: '', fm: '', sd: '', jm: '', n: 2, wait: 50, bs: 80, cc: 4 })
     assert.equal(normalize({ ...base, nt: 0 }).nt, false)
     // the backup provider: empty by default, refused politely when malformed, kept trimmed otherwise
     assert.equal(normalize({ ...base, fb: 'https://openrouter.ai/api/v1/', fk: ' k2 ', fm: ' m2 ' }).fb, 'https://openrouter.ai/api/v1')
@@ -1333,5 +1334,102 @@ describe('مهلة المصادر الإضافية', () => {
   test('كل المصادر ترد قبل المهلة ⇒ لا نفقد شيئاً', async () => {
     const values = await settleWithin([Promise.resolve([1]), Promise.resolve([2])], 1000)
     assert.equal(values.flat().length, 2)
+  })
+})
+
+describe('حزم الحلقات (1–13 في ملف واحد)', () => {
+  const stamp = seconds => {
+    const ms = Math.round(seconds * 1000)
+    const pad = (n, w = 2) => String(n).padStart(w, '0')
+    return `${pad(Math.floor(ms / 3600000))}:${pad(Math.floor(ms / 60000) % 60)}:${pad(Math.floor(ms / 1000) % 60)},${pad(ms % 1000, 3)}`
+  }
+  // Each episode lasts 10 minutes: 60 cues × 10 s. In a reset pack every episode starts again at 00:00.
+  const packSrt = ({ episodes = 3, per = 60, continuous = false, lang = 'eng' } = {}) =>
+    Array.from({ length: episodes * per }, (_, i) => {
+      const episode = Math.floor(i / per) + 1
+      const line = i % per
+      const start = (continuous ? (episode - 1) * 600 : 0) + line * 10
+      const text = lang === 'ara' ? `سطر ${episode} رقم ${line}` : `PART${episode} LINE ${line}`
+      return `${i + 1}\n${stamp(start)} --> ${stamp(start + 2.5)}\n${text}\n`
+    }).join('\n')
+
+  test('القراءة بترتيب الملف تحفظ حدود الحلقات، والقراءة المرتّبة تدمجها', () => {
+    const raw = packSrt({ episodes: 3 })
+    const ordered = parseSubtitle(raw, { ordered: true })
+    const sorted = parseSubtitle(raw)
+    assert.equal(ordered.length, sorted.length)
+    assert.ok(ordered[0].text.startsWith('PART1'))
+    assert.ok(ordered.at(-1).text.startsWith('PART3'))
+    assert.ok(sorted.every((cue, i) => i === 0 || sorted[i - 1].start <= cue.start), 'default parse is time-sorted')
+    assert.ok(ordered.some((cue, i) => i > 0 && cue.start < ordered[i - 1].start), 'file order keeps the restarts')
+  })
+
+  test('اسم الحزمة يُقرأ كمدى، ولا يُحكم عليه كحلقة خاطئة', () => {
+    assert.deepEqual(packRange('Overlord.S01E01-E13.1080p.WEB-PACK'), { season: 1, from: 1, to: 13 })
+    assert.deepEqual(packRange('Overlord.1-13.Complete.BluRay'), { season: null, from: 1, to: 13 })
+    assert.equal(packRange('Some.Show.S01E03.1080p'), null)
+    assert.equal(packRange('Some.Film.2020.1080p.BluRay'), null)
+    const want = { imdb: 'tt1234567', season: 1, episode: 3 }
+    assert.equal(verdictFor('Overlord.S01E01-E13.1080p', want), 'same', 'E03 is inside the pack')
+    assert.equal(byName('Overlord.S01E01-E13.1080p', want, ''), 'same')
+    assert.equal(verdictFor('Overlord.S02E01-E13.1080p', want), 'wrong', 'another season is still wrong')
+  })
+
+  test('حزمة تُعيد التوقيت: تُفصل الحلقة 3 وحدها ويُصفّر توقيتها', () => {
+    const cues = parseSubtitle(packSrt({ episodes: 3 }), { ordered: true })
+    const result = selectEpisode(cues, { id: 'tt1234567:1:3', name: 'Overlord.S01E01-E03.1080p.WEB-PACK' })
+    assert.equal(result.pack, true)
+    assert.equal(result.ok, true)
+    assert.equal(result.method, 'reset')
+    assert.equal(result.confidence, 'high')
+    assert.equal(result.episode, 3)
+    assert.equal(result.parts, 3)
+    assert.equal(result.cues.length, 60)
+    assert.equal(result.cues[0].start, 0)
+    assert.ok(result.cues.every(cue => cue.text.startsWith('PART3 ')), 'no episode 1 or 2 lines')
+    assert.ok(result.cues.at(-1).end < 700)
+  })
+
+  test('حزمة متصلة التوقيت مع اسم 1–13: تُقسّم زمنياً للحلقة المطلوبة', () => {
+    const cues = parseSubtitle(packSrt({ episodes: 13, continuous: true }), { ordered: true })
+    assert.ok(cues.length >= PACK_MIN_CUES)
+    const result = selectEpisode(cues, { id: 'tt1234567:1:3', name: 'Overlord.S01E01-E13.1080p.WEB-PACK' })
+    assert.equal(result.ok, true)
+    assert.equal(result.method, 'division')
+    assert.equal(result.parts, 13)
+    assert.equal(result.cues.length, 60)
+    assert.ok(result.cues.every(cue => cue.text.startsWith('PART3 ')))
+    assert.ok(result.cues[0].start < 3, 'the requested episode is re-based to its own zero')
+  })
+
+  test('عناوين «Episode N» داخل الملف تفصل الحزمة المتصلة بلا اسم مدى', () => {
+    const raw = packSrt({ episodes: 6, continuous: true, per: 60 })
+    const withHeaders = raw.replace(/PART(\d) LINE 0\n/g, 'Episode $1\n')
+    const cues = parseSubtitle(withHeaders, { ordered: true })
+    assert.equal(episodeLabel('Episode 3'), 3)
+    assert.equal(episodeLabel('第4話'), 4)
+    const result = selectEpisode(cues, { id: 'tt1234567:1:2' })
+    assert.equal(result.ok, true)
+    assert.equal(result.method, 'labels')
+    assert.ok(result.cues.every(cue => !cue.text.startsWith('PART1 ')))
+    assert.ok(result.cues.some(cue => cue.text.startsWith('PART2 ')))
+  })
+
+  test('فيلم طويل بلا دليل حلقات لا يُرفض بالخطأ', () => {
+    const cues = Array.from({ length: 200 }, (_, i) => ({ start: i * 20, end: i * 20 + 3, text: `Scene ${i}` }))
+    const result = selectEpisode(cues, { id: 'tt1234567', name: 'A.Long.Film.2020.1080p.BluRay' })
+    assert.equal(result.pack, false)
+    assert.equal(result.cues.length, 200)
+  })
+
+  test('حزمة لفيلم، أو حلقة خارج المدى، أو خيار معطّل ⇒ رفض واضح لا ترجمة خاطئة', () => {
+    const cues = parseSubtitle(packSrt({ episodes: 3 }), { ordered: true })
+    const movie = selectEpisode(cues, { id: 'tt1234567', name: 'Overlord.S01E01-E03.1080p' })
+    assert.equal(movie.ok, false); assert.equal(movie.reason, 'movie')
+    const missing = selectEpisode(cues, { id: 'tt1234567:1:9', name: 'Overlord.S01E01-E03.1080p' })
+    assert.equal(missing.ok, false); assert.equal(missing.reason, 'out-of-range')
+    const off = selectEpisode(cues, { id: 'tt1234567:1:3', name: 'Overlord.S01E01-E03.1080p', enabled: false })
+    assert.equal(off.ok, false); assert.equal(off.reason, 'disabled')
+    for (const failure of [movie, missing, off]) assert.match(packNotice(failure), /ترجمان/)
   })
 })

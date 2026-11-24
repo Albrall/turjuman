@@ -1,6 +1,6 @@
 {
   "name": "tarjuman-addon",
-  "version": "0.9.8.4",
+  "version": "0.9.8.5",
   "description": "Stremio subtitles addon: Arabic translation with your own AI key",
   "type": "module",
   "private": true,

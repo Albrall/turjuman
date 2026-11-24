@@ -116,7 +116,7 @@ describe('what a player asks first', () => {
     const logo = await get('/logo.png')
     assert.equal(logo.headers.get('content-type'), 'image/png')
     assert.deepEqual([...new Uint8Array(await logo.arrayBuffer()).slice(0, 4)], [0x89, 0x50, 0x4e, 0x47])
-    assert.deepEqual(await (await get('/health')).json(), { ok: true, version: '0.9.8.4' })
+    assert.deepEqual(await (await get('/health')).json(), { ok: true, version: '0.9.8.5' })
   })
 
   test("the operator's notice on the settings page, when there is one", async () => {
@@ -136,7 +136,7 @@ describe('what a player asks first', () => {
     const response = await get('/api/status')
     assert.equal(response.headers.get('cache-control'), 'no-store')
     const status = await response.json()
-    assert.deepEqual({ ...status, source: { ...status.source, ms: 0 } }, { ok: true, version: '0.9.8.4', runtime: 'node', storage: 'disk', source: { ok: true, status: 200, ms: 0 } })
+    assert.deepEqual({ ...status, source: { ...status.source, ms: 0 } }, { ok: true, version: '0.9.8.5', runtime: 'node', storage: 'disk', source: { ok: true, status: 200, ms: 0 } })
     process.env.SUBS_SOURCE = 'http://127.0.0.1:9'
     try {
       assert.deepEqual((await (await get('/api/status')).json()).source.ok, false)
@@ -1074,5 +1074,59 @@ describe('الأنمي والمصادر الإضافية (أفكار ٢٤ و٢٥
     assert.equal(kept, COMPLETE)
     assert.deepEqual(lines, [translated(0), translated(1)])   // سطران من حوار ASS
     assert.equal(jimaku.lastFileAuth, 'jm-key')
+  })
+})
+
+describe('حزم الحلقات (1–13) كما يراها المشغّل', () => {
+  const reset = 'series/tt0000210%3A1%3A3'
+  const continuous = 'series/tt0000211%3A1%3A3'
+
+  test('القائمة لا تحكم على الحزمة كحلقة خاطئة، وتوضح المدى والحلقة المختارة', async () => {
+    const subs = await listed(settings('pack-list', { any: 1, n: 3 }), reset)
+    assert.ok(subs.some(s => s.label.startsWith('عربي جاهز')), JSON.stringify(subs.map(s => s.label)))
+    assert.ok(subs.some(s => s.label.startsWith('AI')), JSON.stringify(subs.map(s => s.label)))
+    assert.ok(subs.some(s => s.label.includes('حزمة 1–3')), JSON.stringify(subs.map(s => s.label)))
+    assert.ok(subs.some(s => s.label.includes('حلقة 3')), JSON.stringify(subs.map(s => s.label)))
+  })
+
+  test('العربي الجاهز: أسطر الحلقة 3 وحدها، بتوقيت مصفّر', async () => {
+    const subs = await listed(settings('pack-ready', { any: 1, n: 3 }), reset)
+    const ready = subs.find(s => s.url.includes('/r/'))
+    assert.ok(ready, JSON.stringify(subs.map(s => s.label)))
+    const { response, lines } = await track(ready.url)
+    assert.equal(response.status, 200)
+    assert.equal(lines.length, 60)
+    assert.ok(lines.every(line => line.includes('سطر 3')), 'only episode 3')
+    assert.ok(lines.every(line => !line.includes('سطر 1') && !line.includes('سطر 2')), 'no episode 1/2 lines')
+  })
+
+  test('الذكاء الاصطناعي يترجم الحلقة 3 لا الحلقة الأولى', async () => {
+    const subs = await listed(settings('pack-ai', { any: 1, n: 3 }), reset)
+    const ai = subs.find(s => s.url.includes('/t/'))
+    assert.ok(ai, JSON.stringify(subs.map(s => s.label)))
+    const result = await untilComplete(ai.url)
+    assert.equal(result.lines.length, 60)
+    assert.deepEqual(result.lines, Array.from({ length: 60 }, (_, i) => translated(i)))
+  })
+
+  test('إيقاف الخيار ⇒ إشعار واضح، لا ترجمة حلقة خاطئة', async () => {
+    const cfg = settings('pack-off', { any: 1, n: 3, pk: 0 })
+    const subs = await listed(cfg, reset)
+    assert.ok(subs.every(s => !s.label.startsWith('عربي جاهز')), JSON.stringify(subs.map(s => s.label)))
+    const ai = subs.find(s => s.url.includes('/t/'))
+    assert.ok(ai, JSON.stringify(subs.map(s => s.label)))
+    const { notes, lines } = await track(ai.url)
+    assert.match(notes.map(n => n.text).join(' '), /فصل حزم الحلقات متوقف/)
+    assert.equal(lines.length, 0)
+  })
+
+  test('حزمة بتوقيت متصل (1–13): الحلقة 3 وحدها أيضاً', async () => {
+    const subs = await listed(settings('pack-cont', { any: 1, n: 3 }), continuous)
+    const ready = subs.find(s => s.url.includes('/r/'))
+    assert.ok(ready, JSON.stringify(subs.map(s => s.label)))
+    const { lines } = await track(ready.url)
+    assert.equal(lines.length, 60)
+    assert.ok(lines.every(line => line.includes('سطر 3')))
+    assert.ok(lines.every(line => !line.includes('سطر 1') && !line.includes('سطر 2')))
   })
 })

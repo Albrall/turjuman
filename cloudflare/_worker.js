@@ -151,7 +151,7 @@ var PATTERNS = [
 ];
 var X_PATTERN = /(\d{1,2})x(\d{1,3})(?!\d)/gi;
 var markersIn = (text2) => {
-  const plain = normDigits(String(text2 || "").toLowerCase());
+  const plain = normDigits(String(text2 || "").slice(0, 500).toLowerCase());
   const out = [];
   for (const re of PATTERNS) {
     re.lastIndex = 0;
@@ -167,6 +167,29 @@ var markersIn = (text2) => {
   }
   return out;
 };
+var RANGE_PATTERNS = [
+  /s0*(\d{1,3})[\s._-]*e0*(\d{1,4})[\s._-]*[-–~][\s._-]*e?0*(\d{1,2})(?!\d)/i,
+  /season[\s._-]*0*(\d{1,3})[\s._-]*(?:episode|ep|e)?[\s._-]*0*(\d{1,4})[\s._-]*[-–~][\s._-]*0*(\d{1,2})(?!\d)/i
+];
+var PACK_WORD = /\b(?:season|saison|الموسم|batch|complete|compilation|pack|eps?|حلقات)\b|\bs\d{1,2}\b/i;
+var packRange = (text2) => {
+  const plain = normDigits(String(text2 || "").slice(0, 500).toLowerCase());
+  for (const pattern of RANGE_PATTERNS) {
+    pattern.lastIndex = 0;
+    const match = pattern.exec(plain);
+    if (!match) continue;
+    const season = Number(match[1]), from = Number(match[2]), to = Number(match[3]);
+    if (season >= 1 && season <= 99 && from >= 1 && to > from && to <= 99 && to - from <= 40) return { season, from, to };
+  }
+  if (PACK_WORD.test(plain)) {
+    const match = /(?:^|[^\d])(\d{1,2})\s*[-–~]\s*(\d{1,2})(?!\d)/.exec(plain);
+    if (match) {
+      const from = Number(match[1]), to = Number(match[2]);
+      if (from >= 1 && to > from && to <= 99 && to - from <= 40) return { season: null, from, to };
+    }
+  }
+  return null;
+};
 var verdictFor = (text2, expected) => {
   if (!expected || expected.season == null) return "unknown";
   const plain = normDigits(String(text2 || "").toLowerCase());
@@ -178,6 +201,8 @@ var verdictFor = (text2, expected) => {
     const otherSeasons = markers.filter((marker) => marker.season !== expected.season);
     if (otherSeasons.length === 0) return "same";
   }
+  const range = packRange(plain);
+  if (range && (range.season == null || range.season === expected.season) && expected.episode >= range.from && expected.episode <= range.to) return "same";
   return markers.length ? "wrong" : "unknown";
 };
 var normalizeTitle = (text2) => {
@@ -265,7 +290,8 @@ var normalize = (input) => {
     wait: number(input.wait, 50, 0, 120),
     bs: number(input.bs, 80, 5, 200),
     cc: number(input.cc, 4, 1, 8),
-    gd: flag(input.gd, true)
+    gd: flag(input.gd, true),
+    pk: flag(input.pk, true)
   };
 };
 var decodeConfig = (segment) => {
@@ -759,7 +785,7 @@ var parseAssTime = (value) => {
   if (!m) return null;
   return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) + Number(m[4]) / (m[4].length === 2 ? 100 : 1e3);
 };
-var parseAss = (raw) => {
+var parseAss = (raw, { ordered = false } = {}) => {
   const cues = [];
   let inEvents = false, format = [];
   for (const rawLine of String(raw).split("\n")) {
@@ -800,7 +826,7 @@ var parseAss = (raw) => {
     const text2 = get("text").replace(/\\h/g, " ").replace(/\{\\[^}]*\}/g, "").replace(/\\N/gi, "\n").replace(/\\,/g, ",").trim();
     if (text2) cues.push({ start, end, text: text2 });
   }
-  return cues.sort((a, b) => a.start - b.start);
+  return ordered ? cues : cues.sort((a, b) => a.start - b.start);
 };
 var seconds = (match, at) => {
   const fraction = match[at + 3];
@@ -811,10 +837,10 @@ var isBlank = (line) => {
   const first = line.charCodeAt(0);
   return (first <= 32 || first === 160 || first === 12288 || first === 65279) && line.trim() === "";
 };
-var parseSubtitle = (raw) => {
+var parseSubtitle = (raw, { ordered = false } = {}) => {
   let text2 = String(raw);
   if (text2.charCodeAt(0) === 65279) text2 = text2.slice(1);
-  if (/\[events\]/i.test(text2) && /^\s*dialogue\s*:/im.test(text2)) return parseAss(text2);
+  if (/\[events\]/i.test(text2) && /^\s*dialogue\s*:/im.test(text2)) return parseAss(text2, { ordered });
   if (text2.includes("\r")) text2 = text2.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
   const lines = text2.split("\n");
   const blank = (i) => i < 0 || isBlank(lines[i]);
@@ -853,7 +879,7 @@ ${trimmed}` : trimmed;
     }
   }
   close();
-  return cues.sort((a, b) => a.start - b.start);
+  return ordered ? cues : cues.sort((a, b) => a.start - b.start);
 };
 var NOTE = /[\u266A\u266B\u266C]/;
 var isSongCue = (text2) => NOTE.test(String(text2));
@@ -2445,19 +2471,194 @@ var fetchExtraSubtitle = async (url, cfg, settings, urls = {}) => {
   return text2;
 };
 
+// lib/pack.mjs
+var PACK_MIN_CUES = 150;
+var RESET_DROP_S = 240;
+var MIN_PART_S = 420;
+var MIN_PART_CUES = 20;
+var GAP_S = 300;
+var MIN_EPISODE_S = 8 * 60;
+var MAX_EPISODE_S = 60 * 60;
+var MAX_CUES = 8e3;
+var MAX_PARTS = 60;
+var bounds = (cues) => {
+  let first = Infinity, last = -Infinity;
+  for (const cue of cues) {
+    if (cue.start < first) first = cue.start;
+    if (cue.end > last) last = cue.end;
+  }
+  return { first, last, minutes: (last - first) / 60 };
+};
+var minStart = (part) => {
+  let first = Infinity;
+  for (const cue of part) if (cue.start < first) first = cue.start;
+  return Number.isFinite(first) ? first : 0;
+};
+var normalize3 = (part, base) => {
+  const out = [];
+  for (const cue of part) {
+    const start = Math.max(0, cue.start - base);
+    const end = Math.max(0, cue.end - base);
+    if (end > start) out.push({ start, end, text: cue.text });
+  }
+  return out.sort((a, b) => a.start - b.start).slice(0, MAX_CUES);
+};
+var splitByResets = (cues) => {
+  const parts = [];
+  let start = 0;
+  let maxEnd = cues[0].end;
+  for (let i = 1; i < cues.length; i++) {
+    const cue = cues[i];
+    if (cue.start < maxEnd - RESET_DROP_S && maxEnd - cues[start].start >= MIN_PART_S && i - start >= MIN_PART_CUES) {
+      parts.push(cues.slice(start, i));
+      start = i;
+      maxEnd = cue.end;
+    } else if (cue.end > maxEnd) maxEnd = cue.end;
+  }
+  parts.push(cues.slice(start));
+  return parts;
+};
+var splitByGaps = (cues) => {
+  const parts = [];
+  let start = 0;
+  for (let i = 1; i < cues.length; i++) {
+    if (cues[i].start - cues[i - 1].end > GAP_S && i - start >= MIN_PART_CUES) {
+      parts.push(cues.slice(start, i));
+      start = i;
+    }
+  }
+  parts.push(cues.slice(start));
+  return parts;
+};
+var LABEL_PATTERNS = [
+  /\bs0*(\d{1,2})[\s._-]*e0*(\d{1,3})\b/i,
+  /第\s*0*(\d{1,3})\s*[話话集]/,
+  /(?:الحلقة|حلقه)\s*0*(\d{1,3})/,
+  /\b(?:episode|ep)\.?\s*0*(\d{1,3})\b/i
+];
+var episodeLabel = (text2) => {
+  const plain = normDigits(String(text2 || "")).slice(0, 200);
+  for (const pattern of LABEL_PATTERNS) {
+    pattern.lastIndex = 0;
+    const match = pattern.exec(plain);
+    if (match) {
+      const value = Number(match[match.length - 1]);
+      if (value >= 1 && value <= 999) return value;
+    }
+  }
+  return null;
+};
+var labelBoundaries = (cues) => {
+  const found = [];
+  let lastAt = -MIN_PART_CUES, lastEpisode = 0;
+  for (let i = 0; i < cues.length; i++) {
+    const episode = episodeLabel(cues[i].text);
+    if (episode === null || i - lastAt < MIN_PART_CUES) continue;
+    if (episode < lastEpisode) break;
+    if (episode === lastEpisode) continue;
+    found.push({ at: i, episode });
+    lastAt = i;
+    lastEpisode = episode;
+  }
+  return found;
+};
+var partsFromLabels = (cues, boundaries) => boundaries.map((boundary, i) => ({
+  episode: boundary.episode,
+  cues: cues.slice(boundary.at, boundaries[i + 1]?.at ?? cues.length)
+}));
+var divideByRange = (cues, range, episode) => {
+  const count = range.to - range.from + 1;
+  const index = episode - range.from;
+  if (count < 2 || count > MAX_PARTS || index < 0 || index >= count) return null;
+  const { first, last } = bounds(cues);
+  const per = (last - first) / count;
+  if (per < MIN_EPISODE_S || per > MAX_EPISODE_S) return null;
+  const from = first + index * per;
+  const part = cues.filter((cue) => cue.start >= from - 1 && cue.start < from + per - 1);
+  if (part.length < MIN_PART_CUES) return null;
+  return {
+    pack: true,
+    ok: true,
+    cues: normalize3(part, from),
+    episode,
+    parts: count,
+    from: range.from,
+    method: "division",
+    confidence: "medium"
+  };
+};
+var partResult = (part, extra) => {
+  const cues = normalize3(part, minStart(part));
+  if (cues.length < MIN_PART_CUES) return null;
+  return { pack: true, ok: true, cues, ...extra };
+};
+var selectEpisode = (cues, { id = "", name = "", enabled = true } = {}) => {
+  const list = Array.isArray(cues) ? cues : [];
+  if (!list.length) return { pack: false, cues: [] };
+  const expected = parseVideoId(id);
+  const hasSeason = Boolean(expected && expected.season != null);
+  const range = packRange(name);
+  const usableRange = range && (!hasSeason || range.season == null || range.season === expected.season) ? range : null;
+  const resetParts = splitByResets(list);
+  const resetPack = resetParts.length > 1 && list.length >= PACK_MIN_CUES;
+  const measured = bounds(list);
+  const labels = labelBoundaries(list);
+  const evidence = Boolean(usableRange) || labels.length >= 2;
+  const suspicious = list.length >= PACK_MIN_CUES && measured.minutes > 50;
+  const continuousPack = !resetPack && suspicious && (evidence || measured.minutes > 90);
+  if (!resetPack && !continuousPack) return { pack: false, cues: list };
+  if (!hasSeason && !resetPack && !evidence && measured.minutes <= 360) return { pack: false, cues: list };
+  if (!enabled) return { pack: true, ok: false, reason: "disabled", parts: resetPack ? resetParts.length : 0 };
+  if (!hasSeason) return { pack: true, ok: false, reason: "movie" };
+  const episode = expected.episode;
+  if (resetPack) {
+    const from = usableRange?.from ?? 1;
+    let index = episode - from;
+    const witness = resetParts.findIndex((part) => verdictFor(part.slice(0, 40).map((cue) => cue.text).join("\n"), expected) === "same");
+    if (witness >= 0) index = witness;
+    if (index < 0 || index >= resetParts.length) return { pack: true, ok: false, reason: "out-of-range", parts: resetParts.length, episode };
+    const result = partResult(resetParts[index], { episode, parts: resetParts.length, from, method: "reset", confidence: "high" });
+    return result || { pack: true, ok: false, reason: "out-of-range", parts: resetParts.length, episode };
+  }
+  if (labels.length >= 2) {
+    const parts = partsFromLabels(list, labels);
+    const found = parts.find((part) => part.episode === episode);
+    if (found) {
+      const result = partResult(found.cues, { episode, parts: parts.length, method: "labels", confidence: "high" });
+      if (result) return result;
+    }
+  }
+  const gapParts = splitByGaps(list);
+  if (!usableRange && gapParts.length > 1 && episode >= 1 && episode <= gapParts.length) {
+    const result = partResult(gapParts[episode - 1], { episode, parts: gapParts.length, method: "gaps", confidence: "medium" });
+    if (result) return result;
+  }
+  if (usableRange) {
+    const divided = divideByRange(list, usableRange, episode);
+    if (divided) return divided;
+  }
+  return { pack: true, ok: false, reason: "unresolved", parts: 0, episode };
+};
+var packNotice = (result) => {
+  switch (result?.reason) {
+    case "disabled":
+      return "⚠️ ترجمان: فصل حزم الحلقات متوقف في الإعدادات. هذا الملف يجمع عدة حلقات، فلم يُعرض شيء بدل ترجمة حلقة خاطئة. شغّل الخيار أو اختر ترجمة مستقلة لكل حلقة.";
+    case "movie":
+      return "⚠️ ترجمان: هذا الملف يجمع عدة حلقات، ولا يمكن اختيار حلقة منه لفيلم. اختر ترجمة مستقلة.";
+    case "out-of-range":
+      return `⚠️ ترجمان: الحزمة تحتوي ${result.parts || "عدة"} حلقات ولا تتضمن الحلقة المطلوبة ${result.episode}. اختر ترجمة أخرى.`;
+    default:
+      return "⚠️ ترجمان: تعذّر تحديد حدود الحلقة المطلوبة داخل حزمة الحلقات؛ لم يُعرض شيء بدل ترجمة حلقة خاطئة. جرّب ترجمة مستقلة لكل حلقة.";
+  }
+};
+
 // lib/app.mjs
-var VERSION = "0.9.8.4";
+var VERSION = "0.9.8.5";
 var CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "GET, HEAD, POST, OPTIONS" };
 var VTT = "text/vtt; charset=utf-8";
 var HEADER = "WEBVTT\n\n";
 var HAS_ARABIC = /[\u0600-\u06FF]/;
 var isArabicText = (text2) => HAS_ARABIC.test(text2);
-var isMultiEpisode = (cues) => {
-  if (!cues || cues.length < 150) return false;
-  const last = cues[cues.length - 1];
-  const spanMinutes = (last.end - cues[0].start) / 60;
-  return spanMinutes > 50;
-};
 var respond = (status, headers, body = null) => new Response(body, { status, headers: { ...CORS, ...headers } });
 var json = (status, data, headers = {}) => respond(status, { "content-type": "application/json; charset=utf-8", ...headers }, JSON.stringify(data));
 var text = (status, message) => respond(status, { "content-type": "text/plain; charset=utf-8" }, message);
@@ -2639,17 +2840,22 @@ var createApp = (platform) => {
     if (guarded.wrong) return { key, state: "wrong", wanted: guarded.wrong.wanted, found: guarded.wrong.found, at: Date.now() };
     ref = guarded.ref;
     const [raw, about] = await Promise.all([guarded.raw ? Promise.resolve(guarded.raw) : fetchAnySubtitle(ref.u, cfg, sources), describeTitle({ type: ref.t, id: ref.i }, sources)]);
-    const cues = tidy(parseSubtitle(raw), { dropSounds: cfg.sdh });
+    const selection = selectEpisode(parseSubtitle(raw, { ordered: true }), {
+      id: ref.i,
+      name: String(ref.n || ref.u).slice(0, 200),
+      enabled: cfg.pk !== false
+    });
+    if (selection.pack && !selection.ok) throw new Error(packNotice(selection));
+    const cues = tidy(selection.cues, { dropSounds: cfg.sdh });
     if (!cues.length) throw new Error("الترجمة الأصلية فارغة أو بصيغة غير مدعومة");
     if (cues.length > 8e3) throw new Error("الترجمة الأصلية أطول من المسموح");
-    if (isMultiEpisode(cues)) throw new Error("multi-episode");
     const dict = await dictionaryOf(ref, cfg, sources).catch(() => null);
     const board = Object.assign(createBoard({ key, cues, from: languageName(ref.l), about, batchSize: cfg.bs, wantBrief: cfg.nm, seriesNames: dict?.list, learnNames: dict?.learn, wantNotes: cfg.nt !== false }), { savedAt: 0, savedCount: -1, savedBrief: false, kind: ref.t });
     if (limits.progressEveryMs) await onProgress(board, true).catch(() => {
     });
     return board;
   };
-  const keyOf = (cfg, ref) => cacheKey([ref.u, new URL(cfg.b).host, cfg.m, cfg.sdh, cfg.nm, cfg.nt, PROMPT_VERSION]);
+  const keyOf = (cfg, ref) => cacheKey([ref.u, ref.i, new URL(cfg.b).host, cfg.m, cfg.sdh, cfg.nm, cfg.nt, cfg.pk !== false, PROMPT_VERSION]);
   const ready = async (key) => {
     if (boards.get(key)?.state === "done") return true;
     try {
@@ -2708,7 +2914,7 @@ var createApp = (platform) => {
         checks++;
         try {
           const raw = await fetchAnySubtitle(sub.url, cfg, sources);
-          if (embeddedVerdict(openingCues(parseSubtitle(raw)), expected) !== "wrong") return { url: sub.url, raw };
+          if (embeddedVerdict(openingCues(parseSubtitle(raw, { ordered: true })), expected) !== "wrong") return { url: sub.url, raw };
         } catch {
         }
       }
@@ -2733,7 +2939,7 @@ var createApp = (platform) => {
       return { ref, wrong: { wanted, found: marker ? `الموسم ${marker.season} الحلقة ${marker.episode}` : "حلقة أخرى" } };
     }
     const raw = await fetchAnySubtitle(ref.u, cfg, sources);
-    if (embeddedVerdict(openingCues(parseSubtitle(raw)), expected) === "wrong") {
+    if (embeddedVerdict(openingCues(parseSubtitle(raw, { ordered: true })), expected) === "wrong") {
       const right = await findRightSubtitle(cfg, ref, sources, expected, epName);
       if (right) return { ref: { ...ref, u: right.url }, raw: right.raw };
       return { ref, wrong: { wanted, found: "سطور داخل الترجمة" } };
@@ -2764,9 +2970,7 @@ var createApp = (platform) => {
     try {
       return remember(key, await open(key, cfg, ref, sources));
     } catch (error) {
-      let message = error.message;
-      if (message === "multi-episode") message = "هذا الملف يحتوي على ترجمات لعدة حلقات في ملف واحد، والتوقيت غير مطابق للحلقة المطلوبة. جرّب ترجمة أخرى أو مصدر ترجمات آخر.";
-      return remember(key, { key, state: "error", error: message, at: Date.now() });
+      return remember(key, { key, state: "error", error: error.message, at: Date.now() });
     }
   };
   const join = (board, cfg, ctx, waitMs) => {
@@ -2810,6 +3014,7 @@ var createApp = (platform) => {
     }
     const verifiedArabic = [];
     const unreachableArabic = [];
+    const packInfo = /* @__PURE__ */ new Map();
     for (const sub of pickedArabic) {
       let usable = false;
       try {
@@ -2819,8 +3024,11 @@ var createApp = (platform) => {
           jimaku: sources.jimaku
         });
         if (!isArabicText(text2)) continue;
-        const cues = tidy(parseSubtitle(text2));
-        if (isMultiEpisode(cues)) continue;
+        const name = `${sub.movieReleaseName || ""} ${sub.subtitleFileName || ""}`;
+        const selection = selectEpisode(parseSubtitle(text2, { ordered: true }), { id, name, enabled: cfg.pk !== false });
+        if (selection.pack && !selection.ok) continue;
+        if (!tidy(selection.cues).length) continue;
+        if (selection.pack) packInfo.set(sub.url, selection);
         usable = true;
       } catch {
         unreachableArabic.push(sub);
@@ -2830,7 +3038,7 @@ var createApp = (platform) => {
     }
     pickedArabic = verifiedArabic.slice(0, 2);
     if (cfg.ca && pickedArabic.length > 1) {
-      const best = await pickBestArabic(cfg, pickedArabic, sources);
+      const best = await pickBestArabic(cfg, pickedArabic, sources, id);
       pickedArabic = [pickedArabic[best]];
     }
     const lang = pickLanguage(all, cfg.src, cfg.any);
@@ -2864,7 +3072,13 @@ var createApp = (platform) => {
     }
     const allPicked = [...pickedArabic, ...picked];
     if (!allPicked.length) return noticeList(origin, "no-arabic");
-    const refs = allPicked.map((sub) => ({ u: sub.url, l: sub.lang === "ara" ? "ara" : lang, t: type, i: id }));
+    const refs = allPicked.map((sub) => ({
+      u: sub.url,
+      l: sub.lang === "ara" ? "ara" : lang,
+      t: type,
+      i: id,
+      n: String(sub.movieReleaseName || sub.subtitleFileName || "").slice(0, 200)
+    }));
     const finished = await Promise.all(refs.map(async (ref) => ref.l === "ara" ? true : ready(await keyOf(cfg, ref))));
     const used = /* @__PURE__ */ new Set();
     const subtitles = allPicked.map((sub, i) => {
@@ -2873,6 +3087,10 @@ var createApp = (platform) => {
       const mark = finished[i] ? "✓" : "⏳";
       const readyLabel = cfg.ca && isReady ? "عربي جاهز · اختارته AI" : "عربي جاهز";
       let name = `${isReady ? readyLabel : "AI"} ${mark} · ${release || (isReady ? "arabic" : lang)}`;
+      const range = packRange(release);
+      if (range) name += ` · حزمة ${range.from}–${range.to}`;
+      const split = isReady ? packInfo.get(sub.url) : null;
+      if (split?.ok) name += ` · حلقة ${split.episode}`;
       for (let copy = 2; used.has(name); copy++) name = `${isReady ? readyLabel : "AI"} ${mark} · ${release || (isReady ? "arabic" : lang)} #${copy}`;
       used.add(name);
       const route = isReady ? "r" : "t";
@@ -2933,7 +3151,7 @@ var createApp = (platform) => {
     })());
     return respond(200, { "content-type": VTT, "cache-control": "no-store, no-transform" }, readable);
   };
-  const pickBestArabic = async (cfg, subs, sources) => {
+  const pickBestArabic = async (cfg, subs, sources, id) => {
     if (subs.length <= 1) return 0;
     await assertProviderAllowed(cfg.b, { allowLocal: allowLocal(), lookup: platform.lookup });
     const texts = await Promise.all(subs.map(async (sub, idx) => {
@@ -2943,8 +3161,11 @@ var createApp = (platform) => {
           subdlDl: sources.subdlDl,
           jimaku: sources.jimaku
         });
+        const name = `${sub.movieReleaseName || ""} ${sub.subtitleFileName || ""}`;
+        const selection = selectEpisode(parseSubtitle(text2, { ordered: true }), { id, name, enabled: true });
+        const lines = selection.pack && !selection.ok ? [] : selection.cues.map((cue) => cue.text);
         return `الترجمة ${idx + 1}:
-${text2.slice(0, 6e3)}
+${lines.join("\n").slice(0, 6e3)}
 `;
       } catch {
         return `الترجمة ${idx + 1}: (لا يمكن قراءتها)`;
@@ -2994,12 +3215,20 @@ ${text2.slice(0, 6e3)}
       subdlDl: sources.subdlDl,
       jimaku: sources.jimaku
     });
-    const cues = parseSubtitle(text2);
-    if (isMultiEpisode(cues)) {
+    const selection = selectEpisode(parseSubtitle(text2, { ordered: true }), {
+      id: ref.i,
+      name: String(ref.n || ref.u).slice(0, 200),
+      enabled: cfg.pk !== false
+    });
+    if (selection.pack && !selection.ok) {
+      return respond(200, { "content-type": VTT, "cache-control": "no-store, no-transform" }, messageTrack(packNotice(selection)));
+    }
+    const cues = selection.cues;
+    if (!cues.length) {
       return respond(
         200,
         { "content-type": VTT, "cache-control": "no-store, no-transform" },
-        buildVtt([{ start: 0, end: 10, text: "⚠️ هذا الملف يحتوي على ترجمات لعدة حلقات في ملف واحد، والتوقيت غير مطابق للحلقة المطلوبة. جرّب ترجمة أخرى أو مصدر ترجمات آخر.", rtl: true, top: true }])
+        messageTrack("⚠️ ترجمان: ملف الترجمة فارغ أو بصيغة غير مدعومة")
       );
     }
     const vtt2 = buildVtt(cues);
@@ -3285,6 +3514,7 @@ var configure_default = `<!doctype html>
     <label class="check"><input type="checkbox" id="nt" checked><span>ملاحظات المترجم<small>شرح قصير فوق الشاشة لنكتة أو مصطلح ياباني ما يتترجم، مثل ترجمات الفانز — بحد أقصى ثلاث ملاحظات للحلقة. طلب إضافي واحد لكل فيديو.</small></span></label>
     <label class="check"><input type="checkbox" id="sdh" checked><span>احذف وصف الأصوات مثل [موسيقى] و(تنهّد)</span></label>
     <label class="check"><input type="checkbox" id="gd" checked><span>حارس الحلقة الغلط<small>إن كانت مطابقة الترجمة (باسم ملفها أو بأسطرها الأولى) لحلقة ثانية، لا تترجمها. ترجمان يدوّر في الحلقات المجاورة عن الملف الصح.</small></span></label>
+    <label class="check"><input type="checkbox" id="pk" checked><span>افصل حزم الحلقات تلقائياً<small>إذا كانت الترجمة ملفاً واحداً يجمع حلقات 1–13، يحدد ترجمان الحلقة المطلوبة، يعرض أسطرها وحدها، ويصفّر توقيتها. إن أوقفت الخيار لا تُعرض الحزمة إطلاقاً بدل ما تظهر ترجمة حلقة خاطئة.</small></span></label>
     <label class="check"><input type="checkbox" id="na"><span>لا تترجم إن وُجد عربي جاهز<small>إن وُجد ترجمة عربية من أي مصدر (أوبن سوبتايتلز، ساب دي إل، جيماكو)، تُعرض وحدها وتُكتفى بها. لا يُعرض خيار الترجمة الآلية.</small></span></label>
     <label class="check"><input type="checkbox" id="ca"><span>دع الذكاء يقارن بين الترجمات الجاهزة<small>إذا وُجد أكثر من ترجمة عربية جاهزة، يقرؤها الذكاء الاصطناعي ويختار أفضل واحدة ويعرضها أولًا. يصرف توكنز قليلة من مفتاحك لكل فيديو.</small></span></label>
 
@@ -3365,7 +3595,7 @@ var configure_default = `<!doctype html>
 
   const settings = () => ({
     p: provider(), b: $('base').value.trim().replace(/\\/+$/, ''), k: $('key').value.trim(), m: $('model').value.trim(), r: $('effort').value,
-    src: $('src').value, any: +$('any').checked, warm: +$('warm').checked, pn: +$('pn').checked, cf: +$('cf').checked, sdh: +$('sdh').checked, nm: +$('nm').checked, gd: +$('gd').checked, nt: +$('nt').checked, na: +$('na').checked, ca: +$('ca').checked,
+    src: $('src').value, any: +$('any').checked, warm: +$('warm').checked, pn: +$('pn').checked, cf: +$('cf').checked, sdh: +$('sdh').checked, nm: +$('nm').checked, gd: +$('gd').checked, pk: +$('pk').checked, nt: +$('nt').checked, na: +$('na').checked, ca: +$('ca').checked,
     ...( $('fb').value.trim() ? { fb: $('fb').value.trim().replace(/\\/+$/, ''), fk: $('fk').value.trim(), fm: $('fm').value.trim() } : {} ),
     ...( $('sd').value.trim() ? { sd: $('sd').value.trim() } : {} ),
     ...( $('jm').value.trim() ? { jm: $('jm').value.trim() } : {} ),
@@ -3510,7 +3740,7 @@ var configure_default = `<!doctype html>
     for (const [id, key] of [['base', 'b'], ['key', 'k'], ['model', 'm'], ['effort', 'r'], ['src', 'src'], ['n', 'n'], ['wait', 'wait'], ['bs', 'bs'], ['cc', 'cc'], ['fb', 'fb'], ['fk', 'fk'], ['fm', 'fm'], ['sd', 'sd'], ['jm', 'jm'], ['ex', 'ex']]) {
       if (saved[key] !== undefined) $(id).value = saved[key]
     }
-    for (const id of ['any', 'warm', 'pn', 'cf', 'sdh', 'nm', 'gd', 'nt', 'na', 'ca']) if (saved[id] !== undefined) $(id).checked = Boolean(saved[id])
+    for (const id of ['any', 'warm', 'pn', 'cf', 'sdh', 'nm', 'gd', 'pk', 'nt', 'na', 'ca']) if (saved[id] !== undefined) $(id).checked = Boolean(saved[id])
     showPreset(name)
   } else {
     usePreset('gemini')

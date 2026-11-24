@@ -6,8 +6,8 @@ A self-hosted Stremio add-on that finds the subtitle matching your file and tran
 
 - **Quick start:** `npm ci && npm test && npm run build && npm start` — then open `http://localhost:7000/configure`.
 - **Cloudflare:** `CLOUDFLARE_API_TOKEN=… node deploy.mjs` (see [SECURITY.md](SECURITY.md)).
-- **Status:** 257/257 tests green · CI builds the bundle and attaches `tarjuman-cloudflare.zip` to every `v*` release.
-- **Docs:** [incident report](docs/INCIDENT-0.9.8-ar.md) · [code review (ar)](docs/REVIEW-ar.md) · [roadmap (ar)](docs/ROADMAP-ar.md) · [changelog](CHANGELOG.md).
+- **Status:** 269/269 tests green · CI builds the bundle and attaches `tarjuman-cloudflare.zip` to every `v*` release.
+- **Docs:** [incident report](docs/INCIDENT-0.9.8-ar.md) · [code review (ar)](docs/REVIEW-ar.md) · [roadmap (ar)](docs/ROADMAP-ar.md) · [changelog](CHANGELOG.md) · [episode packs (ar)](docs/PACKS-ar.md).
 
 > Repo name is `turjuman`; the add-on id is `community.tarjuman.arabic-ai` and the Worker is `tarjuman`.
 
@@ -81,6 +81,14 @@ A self-hosted Stremio add-on that finds the subtitle matching your file and tran
 - **وإن لم يجد:** رسالة توضح ذلك، ولا تُصرف توكنز على الحلقة الغلط.
 
 لا يُدان ملف إلا بشاهد صريح: رقم حلقة وحده بلا رقم موسم لا يدين (ترقيم الأنمي المطلق)، واسم الحلقة نفسه شاهد إيجابي لا يمنع أصلًا. ويمكن إيقاف الحارس كله من صفحة الإعدادات («حارس الحلقة الغلط»).
+
+### فصل حزم الحلقات (1–13) تلقائياً
+
+بعض الترجمات تُرفع كملف واحد يجمع حلقات الموسم كاملاً (`S01E01-E13`، `1-13 Complete`). كانت هذه الملفات تظهر للمشغّل **بترجمة الحلقة الأولى** مهما كانت الحلقة المطلوبة: كل حلقة تعيد التوقيت إلى `00:00`، وقارئ الترجمة كان يرتّب الأسطر زمنياً فتتكدّس الحلقات كلها فوق بعض داخل نافذة 24 دقيقة، فيفوت حارس «عدة حلقات» الذي كان يقيس الامتداد الزمني فقط.
+
+الآن تُقرأ الأسطر **بترتيب الملف الأصلي**، وتُكتشف بدايات الحلقات من رجوع التوقيت للوراء (أو من عناوين `Episode N` داخل الملف، أو من تقسيم زمني معقول حين يكون التوقيت متصلاً واسم الملف يذكر المدى). تُعرض أسطر الحلقة المطلوبة وحدها، ويُصفّر توقيتها من جديد. ينطبق هذا على **الترجمة العربية الجاهزة وعلى ترجمة AI وعلى مقارنة الجاهزات** جميعاً عبر دالة واحدة (`lib/pack.mjs`)، وتظهر في اسم الخيار «حزمة 1–13 · حلقة 3».
+
+إن تعذّر تحديد الحدود بثقة، أو كانت الحزمة لفيلم، أو عطّلت الخيار من صفحة الإعدادات، يُعرض إشعار واضح بدل أي ترجمة خاطئة. تفاصيل القرارات والحدود في [docs/PACKS-ar.md](docs/PACKS-ar.md).
 
 ### لماذا ليست «الترجمة المدمجة» نفسها؟
 
@@ -189,7 +197,7 @@ npm test
 npm run build # يعيد بناء cloudflare/_worker.js والـzip بعد أي تعديل
 ```
 
-257 اختبارًا تعمل بلا إنترنت، وكلها تنجح في CI أمام مزوّد وهمي يحاكي الأعطال (وأوهام SubDL وJimaku وKitsu وأنيلست). نسخة Cloudflare تُختبر داخل workerd، وهو المحرّك الذي تشغّله Cloudflare نفسها.
+269 اختبارًا تعمل بلا إنترنت، وكلها تنجح في CI أمام مزوّد وهمي يحاكي الأعطال (وأوهام SubDL وJimaku وKitsu وأنيلست). نسخة Cloudflare تُختبر داخل workerd، وهو المحرّك الذي تشغّله Cloudflare نفسها.
 
 ## حدود معروفة
 

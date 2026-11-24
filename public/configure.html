@@ -168,6 +168,7 @@
     <label class="check"><input type="checkbox" id="nt" checked><span>ملاحظات المترجم<small>شرح قصير فوق الشاشة لنكتة أو مصطلح ياباني ما يتترجم، مثل ترجمات الفانز — بحد أقصى ثلاث ملاحظات للحلقة. طلب إضافي واحد لكل فيديو.</small></span></label>
     <label class="check"><input type="checkbox" id="sdh" checked><span>احذف وصف الأصوات مثل [موسيقى] و(تنهّد)</span></label>
     <label class="check"><input type="checkbox" id="gd" checked><span>حارس الحلقة الغلط<small>إن كانت مطابقة الترجمة (باسم ملفها أو بأسطرها الأولى) لحلقة ثانية، لا تترجمها. ترجمان يدوّر في الحلقات المجاورة عن الملف الصح.</small></span></label>
+    <label class="check"><input type="checkbox" id="pk" checked><span>افصل حزم الحلقات تلقائياً<small>إذا كانت الترجمة ملفاً واحداً يجمع حلقات 1–13، يحدد ترجمان الحلقة المطلوبة، يعرض أسطرها وحدها، ويصفّر توقيتها. إن أوقفت الخيار لا تُعرض الحزمة إطلاقاً بدل ما تظهر ترجمة حلقة خاطئة.</small></span></label>
     <label class="check"><input type="checkbox" id="na"><span>لا تترجم إن وُجد عربي جاهز<small>إن وُجد ترجمة عربية من أي مصدر (أوبن سوبتايتلز، ساب دي إل، جيماكو)، تُعرض وحدها وتُكتفى بها. لا يُعرض خيار الترجمة الآلية.</small></span></label>
     <label class="check"><input type="checkbox" id="ca"><span>دع الذكاء يقارن بين الترجمات الجاهزة<small>إذا وُجد أكثر من ترجمة عربية جاهزة، يقرؤها الذكاء الاصطناعي ويختار أفضل واحدة ويعرضها أولًا. يصرف توكنز قليلة من مفتاحك لكل فيديو.</small></span></label>
 
@@ -248,7 +249,7 @@
 
   const settings = () => ({
     p: provider(), b: $('base').value.trim().replace(/\/+$/, ''), k: $('key').value.trim(), m: $('model').value.trim(), r: $('effort').value,
-    src: $('src').value, any: +$('any').checked, warm: +$('warm').checked, pn: +$('pn').checked, cf: +$('cf').checked, sdh: +$('sdh').checked, nm: +$('nm').checked, gd: +$('gd').checked, nt: +$('nt').checked, na: +$('na').checked, ca: +$('ca').checked,
+    src: $('src').value, any: +$('any').checked, warm: +$('warm').checked, pn: +$('pn').checked, cf: +$('cf').checked, sdh: +$('sdh').checked, nm: +$('nm').checked, gd: +$('gd').checked, pk: +$('pk').checked, nt: +$('nt').checked, na: +$('na').checked, ca: +$('ca').checked,
     ...( $('fb').value.trim() ? { fb: $('fb').value.trim().replace(/\/+$/, ''), fk: $('fk').value.trim(), fm: $('fm').value.trim() } : {} ),
     ...( $('sd').value.trim() ? { sd: $('sd').value.trim() } : {} ),
     ...( $('jm').value.trim() ? { jm: $('jm').value.trim() } : {} ),
@@ -393,7 +394,7 @@
     for (const [id, key] of [['base', 'b'], ['key', 'k'], ['model', 'm'], ['effort', 'r'], ['src', 'src'], ['n', 'n'], ['wait', 'wait'], ['bs', 'bs'], ['cc', 'cc'], ['fb', 'fb'], ['fk', 'fk'], ['fm', 'fm'], ['sd', 'sd'], ['jm', 'jm'], ['ex', 'ex']]) {
       if (saved[key] !== undefined) $(id).value = saved[key]
     }
-    for (const id of ['any', 'warm', 'pn', 'cf', 'sdh', 'nm', 'gd', 'nt', 'na', 'ca']) if (saved[id] !== undefined) $(id).checked = Boolean(saved[id])
+    for (const id of ['any', 'warm', 'pn', 'cf', 'sdh', 'nm', 'gd', 'pk', 'nt', 'na', 'ca']) if (saved[id] !== undefined) $(id).checked = Boolean(saved[id])
     showPreset(name)
   } else {
     usePreset('gemini')

@@ -157,11 +157,22 @@ export const sampleSrt = (count = 130, swaps = {}) => '\uFEFF' + Array.from({ le
   return `${i + 1}\r\n${srtStamp(start)} --> ${srtStamp(start + 2.5)}\r\n${swaps[i] ?? (i === 1 ? AD : LINES[i % LINES.length])}\r\n`
 }).join('\r\n')
 
-// ملف متعدد الحلقات: 200 cue تمتد على 65 دقيقة (مثل حلقات 1–13 في ملف واحد)
+// ملف متعدد الحلقات متصل التوقيت: 200 cue تمتد على ~66 دقيقة
 export const multiEpisodeSrt = () => '\uFEFF' + Array.from({ length: 200 }, (_, i) => {
-  const start = i * 20 * 1000
+  const start = i * 20
   return `${i + 1}\r\n${srtStamp(start)} --> ${srtStamp(start + 19.5)}\r\n${LINES[i % LINES.length]}\r\n`
 }).join('\r\n')
+
+// حزمة 1–N في ملف واحد: إما أن يعيد التوقيت من الصفر عند كل حلقة، أو يستمر عبر الحلقات.
+// 60 سطراً لكل حلقة × 10 ثوانٍ ⇒ 10 دقائق/حلقة، وأكثر من 150 سطراً في الملف الواحد.
+export const packSrt = ({ episodes = 3, per = 60, continuous = false, lang = 'eng' } = {}) =>
+  '\uFEFF' + Array.from({ length: episodes * per }, (_, i) => {
+    const episode = Math.floor(i / per) + 1
+    const line = i % per
+    const start = (continuous ? (episode - 1) * 600 : 0) + line * 10
+    const text = lang === 'ara' ? `سطر ${episode} رقم ${line}` : `PART${episode} LINE ${line}`
+    return `${i + 1}\r\n${srtStamp(start)} --> ${srtStamp(start + 2.5)}\r\n${text}\r\n`
+  }).join('\r\n')
 
 // The subtitle of the title tt0000066: the usual one, with a line that a provider's filter objects to
 export const ROUGH = { 40: 'Tell me how the FLAGGED thing is made.' }
@@ -182,7 +193,7 @@ export const startSource = async () => {
       // 번역: عنوان بعربية مزيفة (محتوى إنكليزي مصنف عربي) — تُستبعد بعد التحقق
       if (path.includes('tt0000040')) return reply(200, { subtitles: [sub(999, 'ara', 'Fake.Arabic.English.Content'), sub(31, 'fre', 'Fake.Arabic.English.Content')] })
       // فيلم بترجمة عربية متعددة الحلقات — تُستبعد بعد التحقق من عدد الإشارات
-      if (path.includes('tt0000045')) return reply(200, { subtitles: [sub(888, 'ara', 'Multi.Episode.File'), sub(31, 'fre', 'Multi.Episode.File')] })
+      if (path.includes('tt0000045')) return reply(200, { subtitles: [sub(888, 'ara', 'Multi.Episode.File.S01E01-E13'), sub(31, 'fre', 'Multi.Episode.File.S01E01-E13')] })
       if (path.includes('tt0000022')) return reply(200, { subtitles: [sub(21, 'eng', 'Twin.Film.2021.1080p.WEB'), sub(22, 'eng', 'Twin.Film.2021.1080p.WEB')] })
       if (path.includes('tt0000066')) return reply(200, { subtitles: [sub(66, 'eng', 'Rough.Film.2022.1080p.WEB')] })
       if (path.includes('tt0000200')) {
@@ -195,6 +206,24 @@ export const startSource = async () => {
         // The file that IS episode 5, uploaded under episode 4's page — the "neighbouring episode" case
         if (id === 'tt0000200:1:4') return reply(200, { subtitles: [
           sub(304, 'eng', 'The.Quest.S01E05.1080p.WEB-DL.x264-RIGHT'),
+        ] })
+        return reply(200, { subtitles: [] })
+      }
+      // حزمة حلقات تُعيد التوقيت عند كل حلقة (S01E01-E03)، عربية جاهزة وإنجليزية للترجمة
+      if (path.includes('tt0000210')) {
+        const id = decodeURIComponent(path.split('/subtitles/series/')[1].replace(/\.json$/, ''))
+        if (id === 'tt0000210:1:3') return reply(200, { subtitles: [
+          sub(881, 'ara', 'Overlord.S01E01-E03.1080p.WEB-PACK'),
+          sub(882, 'eng', 'Overlord.S01E01-E03.1080p.WEB-PACK'),
+        ] })
+        return reply(200, { subtitles: [] })
+      }
+      // حزمة حلقات بتوقيت متصل (S01E01-E13)
+      if (path.includes('tt0000211')) {
+        const id = decodeURIComponent(path.split('/subtitles/series/')[1].replace(/\.json$/, ''))
+        if (id === 'tt0000211:1:3') return reply(200, { subtitles: [
+          sub(884, 'ara', 'Overlord.S01E01-E13.1080p.WEB-PACK'),
+          sub(883, 'eng', 'Overlord.S01E01-E13.1080p.WEB-PACK'),
         ] })
         return reply(200, { subtitles: [] })
       }
@@ -247,6 +276,10 @@ export const startSource = async () => {
       if (path === '/file/999') return reply(200, sampleSrt(3), 'text/plain; charset=utf-8')
       // ملف متعدد الحلقات: 200 cue تمتد على أكثر من 60 دقيقة (مثل حلقات 1–13 في ملف واحد)
       if (path === '/file/888') return reply(200, multiEpisodeSrt(), 'text/plain; charset=utf-8')
+      if (path === '/file/881') return reply(200, packSrt({ episodes: 3, lang: 'ara' }), 'text/plain; charset=utf-8')
+      if (path === '/file/882') return reply(200, packSrt({ episodes: 3 }), 'text/plain; charset=utf-8')
+      if (path === '/file/883') return reply(200, packSrt({ episodes: 13, continuous: true }), 'text/plain; charset=utf-8')
+      if (path === '/file/884') return reply(200, packSrt({ episodes: 13, continuous: true, lang: 'ara' }), 'text/plain; charset=utf-8')
       return reply(200, sampleSrt(), 'text/plain; charset=utf-8')
     }
     if (path.startsWith('/meta/series/tt0000200')) return reply(200, { meta: {
