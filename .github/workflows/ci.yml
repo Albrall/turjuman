@@ -1,0 +1,29 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.15'
+          cache: npm
+      - run: npm ci
+      - name: Syntax
+        run: for f in $(find . -name '*.mjs' -not -path './node_modules/*'); do node --check "$f" || exit 1; done
+      - name: Tests (unit + server + workerd)
+        run: npm test
+        env:
+          CI: 'true'
+      - name: Build the Cloudflare bundle and the Pages zip
+        run: npm run build
+      - name: The bundle is reproducible from the sources
+        run: |
+          cp cloudflare/_worker.js /tmp/before.js
+          npm run build
+          cmp /tmp/before.js cloudflare/_worker.js
+      - name: The uploaded zip exists and is valid
+        run: python3 -c "import zipfile; z=zipfile.ZipFile('cloudflare/tarjuman-cloudflare.zip'); assert z.testzip() is None; assert z.namelist()==['_worker.js']"
+      - name: No credentials committed
+        run: "! grep -rE 'cfat_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}' --exclude-dir=node_modules --exclude-dir=.git ."

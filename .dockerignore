@@ -1,0 +1,10 @@
+cache
+node_modules
+test
+.git
+README.md
+cloudflare
+build.mjs
+worker.mjs
+deploy.mjs
+package-lock.json

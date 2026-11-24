@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ترجمان · ترجمة عربية بالذكاء الاصطناعي في Stremio</title>
+<meta name="description" content="إضافة Stremio تترجم ترجمة الفيلم أو الحلقة إلى العربية بالذكاء الاصطناعي، بمفتاحك الخاص.">
+<link rel="icon" href="/logo.png">
+<style>
+  :root {
+    --bg: #12101c; --card: #1c192b; --line: #2e2a44; --field: #141221;
+    --text: #efecf8; --muted: #a8a3bf; --accent: #9b7bff; --accent-2: #4fd1e8; --good: #5fd3a2; --bad: #ff8a8a;
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: radial-gradient(1200px 600px at 85% -10%, #2a1f55 0%, transparent 60%), var(--bg);
+    color: var(--text); font: 16px/1.7 system-ui, "Segoe UI", Tahoma, "Noto Sans Arabic", "Geeza Pro", sans-serif;
+  }
+  main { max-width: 720px; margin: 0 auto; padding: 28px 16px 56px; }
+  header { display: flex; align-items: center; gap: 16px; margin-bottom: 22px; }
+  header svg { flex: none; width: 64px; height: 64px; border-radius: 18px; box-shadow: 0 10px 30px #0006; }
+  h1 { margin: 0; font-size: 30px; line-height: 1.25; letter-spacing: 0; }
+  header p { margin: 2px 0 0; color: var(--muted); }
+  h2 { margin: 0 0 14px; font-size: 19px; display: flex; align-items: center; gap: 10px; }
+  h2 .step { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #12101c; font-size: 15px; font-weight: 700; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; }
+  .how { display: grid; gap: 12px; grid-template-columns: repeat(3, 1fr); padding: 0; background: none; border: 0; }
+  .how div { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+  .how b { display: block; margin-bottom: 2px; }
+  .how span, .hint, small { color: var(--muted); font-size: 14px; }
+  .notice { border-inline-start: 3px solid var(--accent-2); background: #16263a; border-radius: 10px; padding: 12px 14px; margin: 0 0 16px; font-size: 15px; }
+  .notice.warn { border-inline-start-color: #ffb84d; background: #3a2a12; }
+  .status { list-style: none; margin: 0 0 14px; padding: 10px 14px; display: grid; gap: 4px; border-radius: 12px; background: var(--field); border: 1px solid var(--line); font-size: 14.5px; }
+  .status .bad { color: #ffcf8a; }
+  .providers { display: grid; gap: 10px; grid-template-columns: repeat(4, 1fr); margin-bottom: 16px; }
+  .providers label { position: relative; display: block; cursor: pointer; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--field); transition: border-color .15s, background .15s; }
+  .providers input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+  .providers b { display: block; font-size: 15px; }
+  .providers small { display: block; line-height: 1.4; font-size: 12.5px; }
+  .providers label:has(input:checked) { border-color: var(--accent); background: #241d44; box-shadow: inset 0 0 0 1px var(--accent); }
+  .providers label:has(input:focus-visible) { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+  .field { margin-bottom: 14px; }
+  .field > label, .field > .label { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 6px; font-weight: 600; font-size: 15px; }
+  .field a { font-weight: 400; font-size: 14px; }
+  a { color: var(--accent-2); }
+  input[type=text], input[type=password], input[type=number], select {
+    width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--field); color: var(--text); font: inherit;
+  }
+  input[dir=ltr] { text-align: left; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14.5px; }
+  input::placeholder { color: #7d7896; font-family: system-ui, "Segoe UI", Tahoma, "Noto Sans Arabic", "Geeza Pro", sans-serif; font-size: 15px; }
+  #key::placeholder { direction: rtl; text-align: right; }
+  input:focus-visible, select:focus-visible, button:focus-visible, a.button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+  .key { display: flex; gap: 8px; }
+  .key button { flex: none; }
+  .check { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; cursor: pointer; }
+  .check input { flex: none; width: 20px; height: 20px; margin: 4px 0 0; accent-color: var(--accent); }
+  .check small { display: block; }
+  details { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 15px; }
+  .grid { display: grid; gap: 12px 14px; grid-template-columns: 1fr 1fr; margin-top: 14px; }
+  .grid .field { margin: 0; }
+  button, a.button {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; padding: 0 18px; border-radius: 12px;
+    border: 1px solid var(--line); background: var(--field); color: var(--text); font: inherit; font-weight: 600; text-decoration: none; cursor: pointer;
+  }
+  button:hover, a.button:hover { border-color: var(--accent); }
+  button.primary, a.button.primary { border: 0; color: #12101c; background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+  button.primary:hover, a.button.primary:hover { filter: brightness(1.08); }
+  [aria-disabled=true], button:disabled { opacity: .45; pointer-events: none; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+  .actions .primary { flex: 1 1 220px; }
+  .result { margin-top: 14px; border-radius: 12px; padding: 12px 14px; background: var(--field); border: 1px solid var(--line); font-size: 15px; }
+  .result.good { border-color: #2f6f58; }
+  .result.bad { border-color: #7d3b3b; color: var(--bad); }
+  .result ol { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+  .result li span { display: block; }
+  .result .from { color: var(--muted); font-size: 13.5px; direction: ltr; text-align: left; white-space: pre-line; }
+  .result .to { white-space: pre-line; }
+  .link { margin-top: 12px; }
+  .link input { font-size: 12.5px; color: var(--muted); }
+  .spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid #fff5; border-top-color: #fff; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  footer { color: var(--muted); font-size: 14px; padding: 4px 4px 0; }
+  footer p { margin: 0 0 6px; }
+  [hidden] { display: none !important; }
+  @media (max-width: 600px) {
+    main { padding: 20px 12px 44px; }
+    h1 { font-size: 26px; }
+    .how { grid-template-columns: 1fr; }
+    .providers { grid-template-columns: 1fr 1fr; }
+    .grid { grid-template-columns: 1fr; }
+    section { padding: 16px; }
+    .actions > * { flex: 1 1 100%; }
+  }
+  @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2s; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <svg viewBox="0 0 64 64" role="img" aria-label="شعار ترجمان">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9b7bff"/><stop offset="1" stop-color="#4fd1e8"/></linearGradient></defs>
+      <rect width="64" height="64" rx="16" fill="url(#g)"/>
+      <path d="M14 17h36a5 5 0 0 1 5 5v19a5 5 0 0 1-5 5H31l-10 8v-8h-7a5 5 0 0 1-5-5V22a5 5 0 0 1 5-5z" fill="#fff"/>
+      <text x="32" y="40" text-anchor="middle" font-size="24" font-weight="700" fill="#2a1f55" font-family="system-ui, Tahoma, 'Noto Sans Arabic', sans-serif">ع</text>
+    </svg>
+    <div>
+      <h1>ترجمان</h1>
+      <p>ترجمة عربية بالذكاء الاصطناعي داخل Stremio</p>
+    </div>
+  </header>
+
+  <!--NOTICE-->
+
+  <div class="how">
+    <div><b>تفتح فيلمًا أو حلقة</b><span>الإضافة تجلب الترجمة الأصلية المطابقة لملفك.</span></div>
+    <div><b>تختار «العربية»</b><span>النموذج يترجمها بمفتاحك الخاص.</span></div>
+    <div><b>تُحفظ الترجمة</b><span>المشاهدة التالية فورية وبلا تكلفة.</span></div>
+  </div>
+
+  <p class="notice" style="margin-top:16px">Stremio لا يسلّم الإضافات ملف الفيديو، فلا يمكن قراءة الترجمة المدمجة بداخله. البديل هنا هو الترجمة نفسها من OpenSubtitles، مطابقةً لملفك قدر الإمكان.</p>
+
+  <section>
+    <h2><span class="step">1</span>مزوّد الذكاء الاصطناعي</h2>
+    <div class="providers" role="radiogroup" aria-label="المزوّد">
+      <label><input type="radio" name="provider" value="gemini" checked><b>Gemini</b><small>مجاني ضمن حدود Google</small></label>
+      <label><input type="radio" name="provider" value="openrouter"><b>OpenRouter</b><small>نماذج كثيرة بمفتاح واحد</small></label>
+      <label><input type="radio" name="provider" value="openai"><b>OpenAI</b><small>مدفوع</small></label>
+      <label><input type="radio" name="provider" value="custom"><b>مخصّص</b><small>أي خدمة بصيغة OpenAI</small></label>
+    </div>
+
+    <div class="field" id="base-row" hidden>
+      <label for="base">رابط الخدمة</label>
+      <input id="base" type="text" dir="ltr" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://example.com/v1">
+    </div>
+    <div class="field">
+      <label for="key">مفتاح API <a id="key-link" target="_blank" rel="noopener">احصل على مفتاح ↗</a></label>
+      <div class="key">
+        <input id="key" type="password" dir="ltr" autocomplete="off" spellcheck="false" placeholder="ألصق المفتاح هنا">
+        <button type="button" id="reveal" aria-pressed="false">إظهار</button>
+      </div>
+    </div>
+    <div class="field" style="margin-bottom:0">
+      <label for="model">النموذج</label>
+      <input id="model" type="text" dir="ltr" autocomplete="off" spellcheck="false">
+      <small id="model-hint"></small>
+    </div>
+    <p class="hint" style="margin:12px 0 0">إعداداتك تُحفظ في هذا المتصفح فقط، لتجدها كما تركتها حين تعود. <a href="#" id="forget">مسح المحفوظ</a></p>
+  </section>
+
+  <section>
+    <h2><span class="step">2</span>الخيارات</h2>
+    <div class="field">
+      <label for="src">لغة الترجمة الأصلية</label>
+      <select id="src">
+        <option value="eng">الإنجليزية</option><option value="fre">الفرنسية</option><option value="spa">الإسبانية</option>
+        <option value="ger">الألمانية</option><option value="ita">الإيطالية</option><option value="por">البرتغالية</option>
+        <option value="tur">التركية</option><option value="rus">الروسية</option><option value="jpn">اليابانية</option><option value="kor">الكورية</option>
+      </select>
+    </div>
+    <label class="check"><input type="checkbox" id="any" checked><span>إن لم توجد، ترجم من أي لغة متاحة</span></label>
+    <label class="check"><input type="checkbox" id="warm" checked><span>ابدأ الترجمة فور جلب قائمة الترجمات<small>تجهز أسرع، وتستهلك من مفتاحك مع كل فيديو تُجلب ترجماته.</small></span></label>
+    <label class="check"><input type="checkbox" id="pn" checked><span>ترجم الحلقة الجاية وأنت تشوف<small>للمسلسلات فقط: تبدأ بعد انتهاء الحالية، وتستمر في الخلفية بتوكنزك كما لو اخترتها. أوقفها تُوفّر، أو موجودة بالكامل إن كنت تتابع حلقات ظهرًا.</small></span></label>
+    <label class="check"><input type="checkbox" id="cf" checked><span>لا تبدأ الترجمة إلا بعد اختيارها مرتين<small>المشغّل ينزّل الترجمات من نفسه أحيانًا. بهذا الخيار، أول اختيار يُظهر سطرًا يطلب اختيارها مرة ثانية، والترجمة تبدأ عند الثانية، فلا يُصرف من رصيدك شيء لم تطلبه.</small></span></label>
+    <label class="check"><input type="checkbox" id="nm" checked><span>اقرأ الترجمة كاملة أولاً لمعرفة الأسماء والمصطلحات<small>الأسماء تُكتب بنطقها ولا تُترجم («Hope» تبقى «هوب» لا «أمل»)، وبالرسم نفسه من أول الفيلم لآخره. طلب إضافي واحد لكل فيديو.</small></span></label>
+    <label class="check"><input type="checkbox" id="nt" checked><span>ملاحظات المترجم<small>شرح قصير فوق الشاشة لنكتة أو مصطلح ياباني ما يتترجم، مثل ترجمات الفانز — بحد أقصى ثلاث ملاحظات للحلقة. طلب إضافي واحد لكل فيديو.</small></span></label>
+    <label class="check"><input type="checkbox" id="sdh" checked><span>احذف وصف الأصوات مثل [موسيقى] و(تنهّد)</span></label>
+    <label class="check"><input type="checkbox" id="gd" checked><span>حارس الحلقة الغلط<small>إن كانت مطابقة الترجمة (باسم ملفها أو بأسطرها الأولى) لحلقة ثانية، لا تترجمها. ترجمان يدوّر في الحلقات المجاورة عن الملف الصح.</small></span></label>
+    <label class="check"><input type="checkbox" id="na"><span>لا تترجم إن وُجد عربي جاهز<small>إن وُجد ترجمة عربية من أي مصدر (أوبن سوبتايتلز، ساب دي إل، جيماكو)، تُعرض وحدها وتُكتفى بها. لا يُعرض خيار الترجمة الآلية.</small></span></label>
+    <label class="check"><input type="checkbox" id="ca"><span>دع الذكاء يقارن بين الترجمات الجاهزة<small>إذا وُجد أكثر من ترجمة عربية جاهزة، يقرؤها الذكاء الاصطناعي ويختار أفضل واحدة ويعرضها أولًا. يصرف توكنز قليلة من مفتاحك لكل فيديو.</small></span></label>
+
+    <details>
+      <summary>إعدادات متقدمة</summary>
+      <div class="grid">
+        <div class="field"><label for="n">عدد الترجمات المعروضة</label><input id="n" type="number" min="1" max="3" value="2"></div>
+        <div class="field"><label for="wait">أقصى انتظار للترجمة الكاملة قبل عرض جزء منها (ثوانٍ)</label><input id="wait" type="number" min="0" max="120" value="50"></div>
+        <div class="field"><label for="bs">عدد الأسطر في الطلب الواحد</label><input id="bs" type="number" min="5" max="200" value="80"></div>
+        <div class="field"><label for="cc">عدد الطلبات في الوقت نفسه</label><input id="cc" type="number" min="1" max="8" value="4"></div>
+        <div class="field"><label for="effort">مجهود التفكير (للنماذج التي تدعمه)</label>
+          <select id="effort"><option value="">الافتراضي</option><option value="minimal">الأدنى</option><option value="low">منخفض</option><option value="medium">متوسط</option></select>
+        </div>
+      </div>
+      <div class="grid">
+        <p class="hint" style="margin:0; grid-column:1/-1"><b>مزوّد احتياطي (اختياري)</b> — لو رفضت الخدمة الأساسية أو تأخرت، يُكمل ترجمان من هذي الخدمة بدون ما تسوي شي. يُستخدم مرة واحدة في الحلقة فقط، ولا تطلبها إن كانت فارغة.</p>
+        <div class="field"><label for="fb">رابط الخدمة الاحتياطية</label><input id="fb" type="url" dir="ltr" placeholder="https://openrouter.ai/api/v1"></div>
+        <div class="field"><label for="fk">مفتاحها</label><input id="fk" type="password" dir="ltr" autocomplete="off"></div>
+        <div class="field"><label for="fm">النموذج</label><input id="fm" type="text" dir="ltr" placeholder="google/gemini-3.5-flash-lite"></div>
+      </div>
+    </details>
+  </section>
+
+  <section>
+    <h2>مصادر ترجمة إضافية (اختياري)</h2>
+    <p class="hint" style="margin:0 0 10px">إلى جانب المصدر الحالي (OpenSubtitles)، يقدر ترجمان يدوّر في <b>SubDL</b> (قاعدة ضخمة بما فيها الفانساب) و<b>Jimaku</b> (أفضل متخصص للترجمة اليابانية للأنمي). مفاتيح مجانية وتدخّلها أنت — بدونها تُتخطى هذي المصادر صامتًا ويظل كل شي يشتغل عادي. الروابط الفوقانية تمر داخل رابط الإضافة مثلك كل مفاتيحك.</p>
+    <div class="grid">
+      <div class="field"><label for="sd">مفتاح SubDL <small>(مجاني: <a href="https://subdl.com/account" target="_blank" rel="noopener">subdl.com/account</a>)</small></label><input id="sd" type="password" dir="ltr" autocomplete="off" placeholder="ألصق المفتاح هنا"></div>
+      <div class="field"><label for="jm">مفتاح Jimaku <small>(مجاني: <a href="https://jimaku.cc/account" target="_blank" rel="noopener">jimaku.cc/account</a>)</small></label><input id="jm" type="password" dir="ltr" autocomplete="off" placeholder="ألصق المفتاح هنا"></div>
+      <div class="field"><label for="ex">رابط أوكستندد/بوب كورن نوتس <small>(مفتاح غير مطلوب، افتراضيًا الرابط الرسمي)</small></label><input id="ex" type="url" dir="ltr" placeholder="https://popcorn-notes.lsoares.workers.dev"></div>
+    </div>
+    <p class="hint" style="margin:10px 0 0">الأنمي: ترجمان صار يفهم معرّفات كتالوجات الأنمي (Kitsu وMyAnimeList وAniList) إلى جانب tt<imdb>، فأي أنمي تنزله من أي كتالوج تطلع له ترجمات بعد.</p>
+  </section>
+
+  <section>
+    <h2><span class="step">3</span>جرّب ثم ثبّت</h2>
+    <ul class="status" id="status" aria-live="polite" hidden></ul>
+    <p class="hint" id="problem" role="status"></p>
+    <div class="actions">
+      <button type="button" id="test">جرّب الإعدادات</button>
+    </div>
+    <div class="result" id="result" aria-live="polite" hidden></div>
+    <div class="link">
+      <div class="field" style="margin-bottom:8px">
+        <label for="link">رابط الإضافة</label>
+        <input id="link" type="text" dir="ltr" readonly>
+      </div>
+      <div class="actions" style="margin-top:0">
+        <button type="button" class="primary" id="copy">نسخ الرابط</button>
+        <a class="button" id="install">تثبيت في Stremio</a>
+        <a class="button" id="web" target="_blank" rel="noopener">Stremio Web ↗</a>
+        <a class="button" id="report" target="_blank" rel="noopener">تقرير هذا الشهر</a>
+      </div>
+      <p class="hint" style="margin:12px 0 0"><b>في Nuvio:</b> انسخ الرابط، ثم في صفحة الإضافات (Addons) ألصقه في خانة Addon URL واضغط Install Addon للتثبيت. الصق الرابط الطويل الذي ينسخه الزر، لا عنوان هذه الصفحة.</p>
+      <p class="hint" style="margin:8px 0 0"><b>لتعديل إعداد لاحقًا:</b> في صفحة الإضافات اضغط زر الإعداد ⚙ بجانب ترجمان، فتفتح هذه الصفحة وإعداداتك فيها. عدّل، انسخ الرابط، ثبّته، ثم احذف النسخة القديمة.</p>
+    </div>
+  </section>
+
+  <footer>
+    <p>مفتاحك موجود داخل رابط الإضافة فقط؛ الخادم لا يكتبه في ملفاته ولا في سجلاته. لا تشارك الرابط مع أحد.</p>
+    <p>أول مرة لكل فيديو تأخذ الترجمة وقتًا. إن ظهر جزء منها فقط، أوقف الترجمة ثم أعد اختيار «العربية» من القائمة بعد قليل.</p>
+  </footer>
+</main>
+
+<script>
+  const $ = id => document.getElementById(id)
+
+  // b: address of the service · m: model · r: reasoning effort · bs: lines per request · cc: requests at once
+  const PRESETS = {
+    gemini: { b: 'https://generativelanguage.googleapis.com/v1beta/openai', m: 'gemini-3.5-flash-lite', r: 'minimal', bs: 80, cc: 4, keys: 'https://aistudio.google.com/apikey', hint: 'gemini-3.5-flash-lite سريع ومجاني ضمن حدود Google.' },
+    openrouter: { b: 'https://openrouter.ai/api/v1', m: 'google/gemini-3.5-flash-lite', r: '', bs: 80, cc: 4, keys: 'https://openrouter.ai/keys', hint: 'للتجربة المجانية: google/gemma-4-31b-it:free' },
+    openai: { b: 'https://api.openai.com/v1', m: 'gpt-6-luna', r: 'low', bs: 80, cc: 4, keys: 'https://platform.openai.com/api-keys', hint: 'عندك الحصة اليومية المجانية من OpenAI (مشاركة البيانات)؟ اكتب gpt-5.6-terra: أقوى، وكان ضمن حصة الـ2.5 مليون توكن في نوفمبر 2026. بلا الحصة سعره مرتفع.' },
+    custom: { b: '', m: '', r: '', bs: 80, cc: 2, keys: '', hint: 'أي خدمة تدعم ‎/chat/completions‎ بصيغة OpenAI.' },
+  }
+
+  const provider = () => document.querySelector('input[name=provider]:checked').value
+  const number = (id, fallback) => ($(id).value.trim() === '' || Number.isNaN(+$(id).value) ? fallback : +$(id).value)
+
+  const settings = () => ({
+    p: provider(), b: $('base').value.trim().replace(/\/+$/, ''), k: $('key').value.trim(), m: $('model').value.trim(), r: $('effort').value,
+    src: $('src').value, any: +$('any').checked, warm: +$('warm').checked, pn: +$('pn').checked, cf: +$('cf').checked, sdh: +$('sdh').checked, nm: +$('nm').checked, gd: +$('gd').checked, nt: +$('nt').checked, na: +$('na').checked, ca: +$('ca').checked,
+    ...( $('fb').value.trim() ? { fb: $('fb').value.trim().replace(/\/+$/, ''), fk: $('fk').value.trim(), fm: $('fm').value.trim() } : {} ),
+    ...( $('sd').value.trim() ? { sd: $('sd').value.trim() } : {} ),
+    ...( $('jm').value.trim() ? { jm: $('jm').value.trim() } : {} ),
+    ...( $('ex').value.trim() ? { ex: $('ex').value.trim().replace(/\/+$/, '') } : {} ),
+    n: number('n', 2), wait: number('wait', 50), bs: number('bs', 80), cc: number('cc', 4),
+  })
+
+  const problem = s =>
+    !s.b ? 'أدخل رابط الخدمة.' :
+    !/^https?:\/\/\S+$/.test(s.b) ? 'رابط الخدمة يجب أن يبدأ بـ https://' :
+    !s.k && s.p !== 'custom' ? 'أدخل مفتاح API لتفعيل التجربة والتثبيت.' :
+    !s.m ? 'أدخل اسم النموذج.' : ''
+
+  // The settings travel in the addon's address as base64url JSON
+  const encode = value => {
+    let binary = ''
+    new TextEncoder().encode(JSON.stringify(value)).forEach(byte => { binary += String.fromCharCode(byte) })
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  }
+  const decode = segment => JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(segment.replace(/-/g, '+').replace(/_/g, '/')), char => char.charCodeAt(0))))
+
+  // What was filled in stays in this browser (the key with it), so that changing one option later does not mean
+  // typing everything again. It goes nowhere else: the server never sees it apart from the addon's address.
+  const KEPT = 'tarjuman-settings'
+  const keep = current => { try { localStorage.setItem(KEPT, JSON.stringify(current)) } catch {} }
+  const kept = () => { try { return JSON.parse(localStorage.getItem(KEPT) || 'null') } catch { return null } }
+
+  const update = () => {
+    const current = settings()
+    keep(current)
+    const missing = problem(current)
+    const path = `${location.host}/${encode(current)}/manifest.json`
+    const address = `${location.protocol}//${path}`
+    $('problem').textContent = missing
+    $('problem').hidden = !missing
+    $('link').value = missing ? '' : address
+    $('report').href = missing ? '#' : `${location.protocol}//${location.host}/${encode(current)}/report`
+    for (const [id, href] of [['install', `stremio://${path}`], ['web', `https://web.stremio.com/#/addons?addon=${encodeURIComponent(address)}`]]) {
+      $(id).setAttribute('aria-disabled', String(Boolean(missing)))
+      if (missing) $(id).removeAttribute('href')
+      else $(id).href = href
+    }
+    $('test').disabled = Boolean(missing)
+    $('copy').disabled = Boolean(missing)
+  }
+
+  const usePreset = name => {
+    const preset = PRESETS[name]
+    $('base').value = preset.b
+    $('model').value = preset.m
+    $('effort').value = preset.r
+    $('bs').value = preset.bs
+    $('cc').value = preset.cc
+    showPreset(name)
+  }
+  const showPreset = name => {
+    const preset = PRESETS[name]
+    $('base-row').hidden = name !== 'custom'
+    $('key-link').hidden = !preset.keys
+    if (preset.keys) $('key-link').href = preset.keys
+    $('model-hint').textContent = preset.hint
+    $('result').hidden = true
+    update()
+  }
+
+  document.querySelectorAll('input[name=provider]').forEach(radio => radio.addEventListener('change', () => usePreset(radio.value)))
+  document.querySelectorAll('input:not([name=provider]), select').forEach(field => field.addEventListener('input', update))
+
+  $('reveal').addEventListener('click', () => {
+    const shown = $('key').type === 'text'
+    $('key').type = shown ? 'password' : 'text'
+    $('reveal').textContent = shown ? 'إظهار' : 'إخفاء'
+    $('reveal').setAttribute('aria-pressed', String(!shown))
+  })
+
+  $('copy').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText($('link').value)
+    } catch {
+      $('link').select()
+      document.execCommand('copy')
+    }
+    $('copy').textContent = 'تم النسخ ✓'
+    setTimeout(() => { $('copy').textContent = 'نسخ الرابط' }, 1800)
+  })
+  $('link').addEventListener('focus', () => $('link').select())
+
+  const line = (className, content) => Object.assign(document.createElement('span'), { className, textContent: content })
+
+  $('test').addEventListener('click', async () => {
+    const box = $('result')
+    box.hidden = false
+    box.className = 'result'
+    box.replaceChildren(Object.assign(document.createElement('span'), { className: 'spin' }), ' جارٍ تجربة النموذج…')
+    box.style.display = 'flex'
+    box.style.gap = '10px'
+    box.style.alignItems = 'center'
+    $('test').disabled = true
+    let answer
+    try {
+      answer = await (await fetch('/api/test', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(settings()) })).json()
+    } catch {
+      answer = { ok: false, error: 'تعذّر الاتصال بخادم الإضافة.' }
+    }
+    box.style.display = ''
+    if (answer.ok) {
+      box.className = 'result good'
+      const list = document.createElement('ol')
+      for (const pair of answer.lines) {
+        const item = document.createElement('li')
+        item.append(line('from', pair.from), line('to', pair.to))
+        list.append(item)
+      }
+      box.replaceChildren(`✅ يعمل. ردّ النموذج خلال ${answer.seconds} ثانية:`, list)
+    } else {
+      box.className = 'result bad'
+      box.replaceChildren(`⚠️ ${answer.error}`)
+    }
+    update()
+  })
+
+  // What this server can do: keep finished translations, and reach the subtitles source
+  fetch('/api/status').then(response => response.json()).then(status => {
+    const item = (good, message) => Object.assign(document.createElement('li'), { className: good ? '' : 'bad', textContent: `${good ? '✅' : '⚠️'} ${message}` })
+    const stored = status.storage !== 'none'
+    $('status').replaceChildren(
+      item(stored, stored ? 'التخزين متصل: كل ترجمة تُحفظ ولا تُعاد.' : 'التخزين غير متصل: الترجمة تُعاد في كل مشاهدة. اربط مساحة KV باسم CACHE ثم أعد الرفع.'),
+      item(status.source.ok, status.source.ok ? 'مصدر الترجمات يرد من هذا الخادم.' : `مصدر الترجمات لا يرد من هذا الخادم (${status.source.status || status.source.error}).`),
+    )
+    $('status').hidden = false
+  }).catch(() => {})
+
+  const [, segment, last] = location.pathname.split('/')
+  // Opened from the player's settings button as /<settings>/configure: the page starts from those settings.
+  // Otherwise from what this browser kept the last time.
+  let saved = null
+  if (last === 'configure') try { saved = decode(segment) } catch {}
+  saved ??= kept()
+  if (saved && typeof saved === 'object') {
+    const name = PRESETS[saved.p] ? saved.p : 'custom'
+    document.querySelector(`input[name=provider][value=${name}]`).checked = true
+    for (const [id, key] of [['base', 'b'], ['key', 'k'], ['model', 'm'], ['effort', 'r'], ['src', 'src'], ['n', 'n'], ['wait', 'wait'], ['bs', 'bs'], ['cc', 'cc'], ['fb', 'fb'], ['fk', 'fk'], ['fm', 'fm'], ['sd', 'sd'], ['jm', 'jm'], ['ex', 'ex']]) {
+      if (saved[key] !== undefined) $(id).value = saved[key]
+    }
+    for (const id of ['any', 'warm', 'pn', 'cf', 'sdh', 'nm', 'gd', 'nt', 'na', 'ca']) if (saved[id] !== undefined) $(id).checked = Boolean(saved[id])
+    showPreset(name)
+  } else {
+    usePreset('gemini')
+  }
+
+  $('forget').addEventListener('click', event => {
+    event.preventDefault()
+    try { localStorage.removeItem(KEPT) } catch {}
+    location.reload()
+  })
+</script>
+</body>
+</html>

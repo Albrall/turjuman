@@ -1,0 +1,22 @@
+{
+  "name": "tarjuman-addon",
+  "version": "0.9.8",
+  "description": "Stremio subtitles addon: Arabic translation with your own AI key",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20.15"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "build": "node build.mjs",
+    "test": "node --test test/unit.test.mjs test/server.test.mjs test/worker.test.mjs test/phase6.test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "miniflare": "^4.0.0"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3"
+  }
+}
