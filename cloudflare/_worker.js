@@ -404,7 +404,8 @@ var sourceSettings = (env) => ({
   subdl: env("SUBDL_URL") || "",
   subdlDl: env("SUBDL_DL_URL") || "",
   jimaku: env("JIMAKU_URL") || "",
-  popcorn: env("POPCORN_URL") || ""
+  popcorn: env("POPCORN_URL") || "",
+  extraMs: Math.max(500, Math.min(8e3, Number(env("EXTRA_TIMEOUT_MS")) || 3e3))
 });
 var getJson = async (url, timeoutMs) => {
   const response = await fetch(url, { headers: AGENT, signal: AbortSignal.timeout(timeoutMs) });
@@ -2203,7 +2204,7 @@ var toLang3 = (value) => {
   const short = raw.replace(/_/g, "-");
   return LANG2[short] || LANG2[short.split("-")[0]] || (/^[a-z]{3}$/.test(short) ? short : null);
 };
-var TIMEOUT = 1e4;
+var TIMEOUT = 4e3;
 var cache = /* @__PURE__ */ new Map();
 var CACHE_TTL = 10 * 6e4;
 var cached = async (key, make) => {
@@ -2363,8 +2364,9 @@ var extraSubtitles = async ({ type, id, title, year, episode, empty = false }, c
     return popcornNotesSearch({ id, type, title: resolved.title, year: resolved.year, episode: resolved.episode }, popcornBase, urls);
   })());
   if (!jobs.length) return [];
-  const settled = await Promise.allSettled(jobs);
-  return settled.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+  const deadline = Math.max(100, Number(urls.extraMs) || EXTRA_DEADLINE_MS);
+  const values = await settleWithin(jobs, deadline);
+  return values.flatMap((value) => Array.isArray(value) ? value : []);
 };
 var isPopcornUrlAllowed = (base) => {
   let url;
@@ -2378,6 +2380,25 @@ var isPopcornUrlAllowed = (base) => {
   return !isPrivateHost(host);
 };
 var SUB_EXT = /\.(srt|vtt|ass|ssa|sub)$/i;
+var EXTRA_DEADLINE_MS = 3e3;
+var settleWithin = (jobs, ms) => new Promise((resolve) => {
+  const values = [];
+  let left = jobs.length;
+  if (!left) return resolve(values);
+  const timer = setTimeout(() => resolve(values.slice()), ms);
+  for (const job of jobs) {
+    Promise.resolve(job).then((value) => {
+      values.push(value);
+    }, () => {
+    }).finally(() => {
+      left -= 1;
+      if (left === 0) {
+        clearTimeout(timer);
+        resolve(values.slice());
+      }
+    });
+  }
+});
 var PICK = [".srt", ".ass", ".ssa", ".vtt", ".sub"];
 var unzipSubtitle = (buffer, preferLang3 = "") => {
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
@@ -2425,7 +2446,7 @@ var fetchExtraSubtitle = async (url, cfg, settings, urls = {}) => {
 };
 
 // lib/app.mjs
-var VERSION = "0.9.8.3";
+var VERSION = "0.9.8.4";
 var CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "GET, HEAD, POST, OPTIONS" };
 var VTT = "text/vtt; charset=utf-8";
 var HEADER = "WEBVTT\n\n";
@@ -2515,7 +2536,7 @@ var mergedSubtitles = async ({ type, rawId, rawExtra }, cfg, sources, log) => {
   } catch {
   }
   const empty = !base || base.length === 0;
-  const extra = await extraSubtitles({ type, id, empty }, cfg, { kitsu: sources.kitsu || void 0, anilist: sources.anilist || void 0, subdl: sources.subdl || void 0, subdlDl: sources.subdlDl || void 0, jimaku: sources.jimaku || void 0, popcorn: sources.popcorn || void 0, meta: sources.meta || void 0 }).catch(() => []);
+  const extra = await extraSubtitles({ type, id, empty }, cfg, { kitsu: sources.kitsu || void 0, anilist: sources.anilist || void 0, subdl: sources.subdl || void 0, subdlDl: sources.subdlDl || void 0, jimaku: sources.jimaku || void 0, popcorn: sources.popcorn || void 0, meta: sources.meta || void 0, extraMs: sources.extraMs }).catch(() => []);
   return { base, merged: [...base || [], ...extra] };
 };
 var fetchAnySubtitle = (url, cfg, sources) => fetchExtraSubtitle(url, cfg, sources, sources);

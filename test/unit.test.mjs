@@ -10,7 +10,7 @@ import { BRIEF, fake, sampleSrt, startAi } from './mocks.mjs'
 import { byName, embeddedVerdict, markersIn, parseVideoId, verdictFor } from '../lib/episode.mjs'
 import { applySeriesNames, learnSeriesNames } from '../lib/series.mjs'
 import { isSongCue } from '../lib/subs.mjs'
-import { unzipSubtitle } from '../lib/extraSources.mjs'
+import { unzipSubtitle, settleWithin, EXTRA_DEADLINE_MS } from '../lib/extraSources.mjs'
 import { strToU8, zipSync } from 'fflate'
 
 describe('reading subtitles', () => {
@@ -237,6 +237,7 @@ describe('settings', () => {
     assert.ok(defaults.allow.test('https://subs5.strem.io/en/download/file/1'))
     assert.ok(!defaults.allow.test('https://evil.example/strem.io/'))
     assert.ok(!defaults.allow.test('http://subs5.strem.io/x'))
+    assert.equal(defaults.extraMs, EXTRA_DEADLINE_MS)
     const custom = sourceSettings(name => ({ SUBS_SOURCE: 'http://127.0.0.1:9/', SUBS_ALLOW: '^http://127\\.0\\.0\\.1:9/' })[name])
     assert.equal(custom.source, 'http://127.0.0.1:9')
     assert.ok(custom.allow.test('http://127.0.0.1:9/file/1'))
@@ -1317,5 +1318,20 @@ describe('سقوف الحجم على الخطة المجانية', () => {
     const bomb = zipSync({ 'big.srt': strToU8('A'.repeat(5_000_000)) })
     assert.ok(bomb.byteLength < 100_000, 'الحزمة المضغوطة صغيرة لكنها تدّعي 5 MB')
     assert.throws(() => unzipSubtitle(Buffer.from(bomb)), /الحزمة|الحد المسموح/)
+  })
+})
+
+describe('مهلة المصادر الإضافية', () => {
+  test('ما وصل قبل المهلة يُعرض، والمصدر المعلّق لا يعطّل القائمة', async () => {
+    const started = Date.now()
+    const slow = new Promise(() => {})            // مصدر لا يرد أبداً
+    const values = await settleWithin([Promise.resolve([{ url: 'a' }]), Promise.reject(new Error('x')), slow], 40)
+    assert.deepEqual(values, [[{ url: 'a' }]])
+    assert.ok(Date.now() - started < 500, 'يجب ألا ننتظر المصدر المعلّق')
+  })
+
+  test('كل المصادر ترد قبل المهلة ⇒ لا نفقد شيئاً', async () => {
+    const values = await settleWithin([Promise.resolve([1]), Promise.resolve([2])], 1000)
+    assert.equal(values.flat().length, 2)
   })
 })

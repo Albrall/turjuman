@@ -116,7 +116,7 @@ describe('what a player asks first', () => {
     const logo = await get('/logo.png')
     assert.equal(logo.headers.get('content-type'), 'image/png')
     assert.deepEqual([...new Uint8Array(await logo.arrayBuffer()).slice(0, 4)], [0x89, 0x50, 0x4e, 0x47])
-    assert.deepEqual(await (await get('/health')).json(), { ok: true, version: '0.9.8.3' })
+    assert.deepEqual(await (await get('/health')).json(), { ok: true, version: '0.9.8.4' })
   })
 
   test("the operator's notice on the settings page, when there is one", async () => {
@@ -136,7 +136,7 @@ describe('what a player asks first', () => {
     const response = await get('/api/status')
     assert.equal(response.headers.get('cache-control'), 'no-store')
     const status = await response.json()
-    assert.deepEqual({ ...status, source: { ...status.source, ms: 0 } }, { ok: true, version: '0.9.8.3', runtime: 'node', storage: 'disk', source: { ok: true, status: 200, ms: 0 } })
+    assert.deepEqual({ ...status, source: { ...status.source, ms: 0 } }, { ok: true, version: '0.9.8.4', runtime: 'node', storage: 'disk', source: { ok: true, status: 200, ms: 0 } })
     process.env.SUBS_SOURCE = 'http://127.0.0.1:9'
     try {
       assert.deepEqual((await (await get('/api/status')).json()).source.ok, false)
