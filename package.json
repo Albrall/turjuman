@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node server.mjs",
     "build": "node build.mjs",
-    "test": "node --test test/unit.test.mjs test/server.test.mjs test/worker.test.mjs test/phase6.test.mjs"
+    "test": "node --test test/unit.test.mjs test/server.test.mjs test/worker.test.mjs test/phase6.test.mjs",
+    "pretest": "npm run build"
   },
   "devDependencies": {
     "esbuild": "^0.25.0",

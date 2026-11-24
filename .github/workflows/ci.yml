@@ -12,6 +12,8 @@ jobs:
       - run: npm ci
       - name: Syntax
         run: for f in $(find . -name '*.mjs' -not -path './node_modules/*'); do node --check "$f" || exit 1; done
+      - name: Build the bundle the workerd tests read
+        run: npm run build
       - name: Tests (unit + server + workerd)
         run: npm test
         env:
