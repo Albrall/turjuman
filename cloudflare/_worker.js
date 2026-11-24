@@ -3009,8 +3009,7 @@ ${text2.slice(0, 6e3)}
       return vtt(messageTrack(`⚠️ تعذّر تجهيز الترجمة: ${board.error}`), false);
     }
     if (board.state === "done") {
-      const saved = countHit();
-      ctx?.waitUntil?.(saved);
+      await countHit();
       return vtt(render(board).body, true);
     }
     const justWaited = board.partialAt && Date.now() - board.partialAt < number3("REPICK_MS", 8e3);
