@@ -62,10 +62,11 @@ const platformFor = env => {
     hasLogo: true,
     logo: () => (logo ??= Uint8Array.from(atob(logoBase64), char => char.charCodeAt(0))),
     store: env.CACHE?.get ? kvStore(env.CACHE) : noStore,
-    // The free plan allows a request 50 outgoing requests and cuts it off 30 seconds after its client leaves.
-    // On a paid plan HELPER_BUDGET can be raised.
+    // Free plan: 50 subrequests/request and 30 s after the client leaves. 32 model calls leave a real
+    // margin for the source list, the extra providers, the verification downloads and the KV writes.
+    // On a paid plan HELPER_BUDGET can be raised again.
     limits: {
-      budget: number('HELPER_BUDGET', 40),
+      budget: number('HELPER_BUDGET', 32),
       lingerMs: number('LINGER_MS', 18_000),
       progressEveryMs: number('PROGRESS_EVERY_MS', 15_000),
       maxBoards: 12,

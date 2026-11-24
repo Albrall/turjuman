@@ -28,11 +28,14 @@ if (!token) fail('set CLOUDFLARE_API_TOKEN')
 if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(name)) fail('WORKER_NAME: lower-case letters, digits and dashes')
 
 // Cloudflare's answer, or null where the thing asked for is not there
-const call = async (path, { missing = false, ...init } = {}) => {
+const call = async (path, { missing = false, soft = false, ...init } = {}) => {
   const response = await fetch(`${API}${path}`, { ...init, headers: { authorization: `Bearer ${token}`, ...init.headers }, signal: AbortSignal.timeout(60_000) })
   const data = await response.json().catch(() => ({}))
   if (missing && response.status === 404) return null
-  if (!response.ok || data.success === false) fail(`${init.method || 'GET'} ${path.replace(/[0-9a-f]{32}/g, '…')} → ${response.status}: ${(data.errors || []).map(error => error.message).join('; ') || 'no reason given'}`)
+  if (!response.ok || data.success === false) {
+    if (soft) return null
+    fail(`${init.method || 'GET'} ${path.replace(/[0-9a-f]{32}/g, '…')} → ${response.status}: ${(data.errors || []).map(error => error.message).join('; ') || 'no reason given'}`)
+  }
   return data.result
 }
 const json = (method, body) => ({ method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
@@ -54,15 +57,28 @@ else {
 }
 
 const script = await readFile(join(HERE, 'cloudflare', '_worker.js'))
-const form = new FormData()
-form.set('metadata', JSON.stringify({
+const metadata = {
   main_module: '_worker.js',
   compatibility_date: '2026-01-20',   // the date the tests run it under
   bindings: [{ type: 'kv_namespace', name: 'CACHE', namespace_id: namespace.id }],
   tags: [TAG],
-}))
-form.set('_worker.js', new Blob([script], { type: 'application/javascript+module' }), '_worker.js')
-await call(`${base}/workers/scripts/${name}`, { method: 'PUT', body: form })
+  // Invocation logs carry cpuTime/wallTime: the only way to see the free plan's 10 ms budget in production.
+  observability: { enabled: true, logs: { enabled: true, invocation_logs: true, head_sampling_rate: 1 } },
+}
+const formFor = settings => {
+  const form = new FormData()
+  form.set('metadata', JSON.stringify(settings))
+  form.set('_worker.js', new Blob([script], { type: 'application/javascript+module' }), '_worker.js')
+  return form
+}
+let uploaded = await call(`${base}/workers/scripts/${name}`, { method: 'PUT', body: formFor(metadata), soft: true })
+if (uploaded) console.log('· Workers Logs: enabled (invocation logs, 100% sampling)')
+else {
+  // An account/plan without Workers Logs must not block the deploy.
+  delete metadata.observability
+  console.log('· Workers Logs: not available on this account — deployed without it')
+  uploaded = await call(`${base}/workers/scripts/${name}`, { method: 'PUT', body: formFor(metadata) })
+}
 console.log(`· Worker "${name}": ${existing ? 'updated' : 'created'} (${(script.length / 1024).toFixed(0)} KB)`)
 
 // Its address under the account's workers.dev name

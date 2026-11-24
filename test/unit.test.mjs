@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { after, before, describe, test } from 'node:test'
 import { alive, anchorNotes, briefInput, briefPrompt, cacheKey, createBoard, makeBatches, misnamed, readBrief, readNotes, resumeBoard, startHelper, surelyName, systemPrompt } from '../lib/board.mjs'
 import { mergeReport, monthKey, reportHtml } from '../lib/report.mjs'
-import { ConfigError, assertProviderAllowed, decodeConfig, decodeText, encodeConfig, encodeText, normalize } from '../lib/config.mjs'
+import { ConfigError, assertProviderAllowed, decodeConfig, decodeText, encodeConfig, encodeText, normalize, readLimited, readTextLimited, MAX_SUBTITLE_BYTES } from '../lib/config.mjs'
 import { failure, freshCaps, loosen, readMap } from '../lib/llm.mjs'
 import { pickLanguage, rank, sourceSettings } from '../lib/sources.mjs'
 import { buildVtt, parseSubtitle, stamp, tidy } from '../lib/subs.mjs'
@@ -10,6 +10,8 @@ import { BRIEF, fake, sampleSrt, startAi } from './mocks.mjs'
 import { byName, embeddedVerdict, markersIn, parseVideoId, verdictFor } from '../lib/episode.mjs'
 import { applySeriesNames, learnSeriesNames } from '../lib/series.mjs'
 import { isSongCue } from '../lib/subs.mjs'
+import { unzipSubtitle } from '../lib/extraSources.mjs'
+import { strToU8, zipSync } from 'fflate'
 
 describe('reading subtitles', () => {
   test('plain SRT', () => {
@@ -1292,5 +1294,28 @@ describe('the monthly report (idea 38)', () => {
     assert.ok(page.length > 500 && page.includes('<html'))
     const noUsage = reportHtml({ episodes: 1, tv: 0, film: 1, lines: 10, requests: 1, tokensP: 0, tokensC: 0, withUsage: 0, hits: 0 }, 'نوفمبر 2026')
     assert.match(noUsage, /ما يرسل إحصاءات/)
+  })
+})
+
+describe('سقوف الحجم على الخطة المجانية', () => {
+  test('content-length كبير يُرفض قبل لمس الجسم', async () => {
+    const response = new Response('x'.repeat(10), { headers: { 'content-length': String(MAX_SUBTITLE_BYTES + 1) } })
+    await assert.rejects(readTextLimited(response), /الحد المسموح/)
+  })
+
+  test('التدفق يتوقف عند تجاوز السقف ولا يُخزّن الملف كاملاً', async () => {
+    const response = new Response('x'.repeat(MAX_SUBTITLE_BYTES + 100))
+    await assert.rejects(readLimited(response), /الحد المسموح/)
+  })
+
+  test('ملف صحيح ضمن السقف يُقرأ كاملاً', async () => {
+    const response = new Response('مرحباً بالعالم')
+    assert.equal(await readTextLimited(response), 'مرحباً بالعالم')
+  })
+
+  test('حزمة تعلن حجماً خادعاً تُرفض قبل فك الضغط', () => {
+    const bomb = zipSync({ 'big.srt': strToU8('A'.repeat(5_000_000)) })
+    assert.ok(bomb.byteLength < 100_000, 'الحزمة المضغوطة صغيرة لكنها تدّعي 5 MB')
+    assert.throws(() => unzipSubtitle(Buffer.from(bomb)), /الحزمة|الحد المسموح/)
   })
 })

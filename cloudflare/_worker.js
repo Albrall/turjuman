@@ -193,6 +193,205 @@ var byName = (text2, expected, episodeName = "") => {
 var embeddedVerdict = (cues, expected) => verdictFor(cues.map((cue) => cue.text).join("\n"), expected);
 var openingCues = (cues, count = 40) => cues.slice(0, count);
 
+// lib/config.mjs
+var ConfigError = class extends Error {
+};
+var number = (value, fallback, min, max2) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.min(max2, Math.max(min, Math.round(parsed))) : fallback;
+};
+var flag = (value, fallback) => value === void 0 ? fallback : Boolean(Number(value) || value === true);
+var EFFORTS = ["", "minimal", "low", "medium", "high"];
+var encodeText = (text2) => {
+  let binary = "";
+  for (const byte of new TextEncoder().encode(text2)) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+};
+var decodeText = (segment) => {
+  const binary = atob(segment.replace(/-/g, "+").replace(/_/g, "/"));
+  return new TextDecoder().decode(Uint8Array.from(binary, (char) => char.charCodeAt(0)));
+};
+var normalize = (input) => {
+  if (!input || typeof input !== "object") throw new ConfigError("الإعدادات غير مقروءة");
+  const base = String(input.b || "").trim().replace(/\/+$/, "");
+  let url;
+  try {
+    url = new URL(base);
+  } catch {
+    throw new ConfigError("رابط مزود الـAI غير صحيح");
+  }
+  if (!["https:", "http:"].includes(url.protocol)) throw new ConfigError("رابط مزود الـAI غير صحيح");
+  const model = String(input.m || "").trim();
+  if (!model || model.length > 120) throw new ConfigError("اسم النموذج مطلوب");
+  const key = String(input.k || "").trim();
+  if (key.length > 400) throw new ConfigError("مفتاح الـAI أطول من المتوقع");
+  const source = String(input.src || "eng").toLowerCase();
+  const fallbackBase = String(input.fb || "").trim().replace(/\/+$/, "");
+  if (fallbackBase) {
+    let fallbackUrl;
+    try {
+      fallbackUrl = new URL(fallbackBase);
+    } catch {
+      throw new ConfigError("رابط المزوّد الاحتياطي غير صحيح");
+    }
+    if (!["https:", "http:"].includes(fallbackUrl.protocol)) throw new ConfigError("رابط المزوّد الاحتياطي غير صحيح");
+  }
+  return {
+    b: base,
+    k: key,
+    m: model,
+    r: EFFORTS.includes(input.r) ? input.r : "",
+    src: /^[a-z]{3}$/.test(source) ? source : "eng",
+    any: flag(input.any, true),
+    warm: flag(input.warm, true),
+    sdh: flag(input.sdh, true),
+    nm: flag(input.nm, true),
+    pn: flag(input.pn, true),
+    nt: flag(input.nt, true),
+    fb: fallbackBase,
+    fk: String(input.fk || "").trim().slice(0, 400),
+    fm: String(input.fm || "").trim().slice(0, 120),
+    cf: flag(input.cf, true),
+    // na: لا تُظهر خيار الترجمة إن وُجد ترجمة عربية جاهزة — يُكتفى بالعربي من المصادر
+    na: flag(input.na, false),
+    // ca: يقارن الذكاء الاصطناعي بين الترجمات العربية الجاهزة ويختار أفضلها قبل العرض (يصرف توكنز بسيطة لكل فيديو)
+    ca: flag(input.ca, false),
+    // ex: رابط مصدر إضافي للترجمات (مثل أوكستندد/بوب كورن نوتس) — اختياري، افتراضيًا المضيف الرسمي
+    ex: String(input.ex || "").trim().slice(0, 200),
+    // مفاتيح مصادر الترجمة الإضافية (فكرة 25) — كل مستخدم يدخل مفاتيحه؛ بغيابها المزود يُتخطى صامتًا
+    sd: String(input.sd || "").trim().slice(0, 120),
+    jm: String(input.jm || "").trim().slice(0, 120),
+    n: number(input.n, 2, 1, 3),
+    wait: number(input.wait, 50, 0, 120),
+    bs: number(input.bs, 80, 5, 200),
+    cc: number(input.cc, 4, 1, 8),
+    gd: flag(input.gd, true)
+  };
+};
+var decodeConfig = (segment) => {
+  if (!/^[A-Za-z0-9_-]{8,4000}$/.test(segment)) throw new ConfigError("الإعدادات غير مقروءة");
+  let parsed;
+  try {
+    parsed = JSON.parse(decodeText(segment));
+  } catch {
+    throw new ConfigError("الإعدادات غير مقروءة");
+  }
+  return normalize(parsed);
+};
+var IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
+var isPrivateAddress = (address) => {
+  if (IPV4.test(address)) {
+    const [a, b] = address.split(".").map(Number);
+    return a === 0 || a === 10 || a === 127 || a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168 || a === 100 && b >= 64 && b <= 127;
+  }
+  const v6 = address.toLowerCase();
+  return v6 === "::1" || v6 === "::" || v6.startsWith("fc") || v6.startsWith("fd") || v6.startsWith("fe80") || v6.startsWith("::ffff:");
+};
+var LOCAL_NAME = /(^|\.)(localhost|local|internal|lan|home\.arpa)$/i;
+var checked = /* @__PURE__ */ new Map();
+var assertProviderAllowed = async (base, { allowLocal = false, lookup } = {}) => {
+  if (allowLocal) return;
+  const url = new URL(base);
+  if (url.protocol !== "https:") throw new ConfigError("رابط مزود الـAI يجب أن يبدأ بـ https");
+  if (Date.now() - (checked.get(url.hostname) ?? 0) < 10 * 6e4) return;
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  const literal = IPV4.test(host) || host.includes(":");
+  if (!literal && LOCAL_NAME.test(host)) throw new ConfigError("عنوان مزود الـAI غير مسموح (شبكة داخلية)");
+  let addresses = [host];
+  if (!literal && lookup) {
+    try {
+      addresses = await lookup(host);
+    } catch {
+      throw new ConfigError("تعذّر الوصول إلى عنوان مزود الـAI");
+    }
+  }
+  if (!addresses.length || (literal || lookup ? addresses.some(isPrivateAddress) : false)) throw new ConfigError("عنوان مزود الـAI غير مسموح (شبكة داخلية)");
+  if (checked.size > 200) checked.clear();
+  checked.set(url.hostname, Date.now());
+};
+var MAX_REDIRECTS = 2;
+var isPrivateHost = (host) => {
+  if (IPV4.test(host)) {
+    const [a, b] = host.split(".").map(Number);
+    return a === 0 || a === 10 || a === 127 || a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168 || a === 100 && b >= 64 && b <= 127;
+  }
+  const v6 = host.toLowerCase();
+  return v6 === "::1" || v6 === "::" || v6.startsWith("fc") || v6.startsWith("fd") || v6.startsWith("fe80") || v6.startsWith("::ffff:") || LOCAL_NAME.test(host);
+};
+var safeFetch = async (input, init = {}) => {
+  let url = typeof input === "string" ? input : input.url || String(input);
+  let redirects = 0;
+  for (; ; ) {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^\[|\]$/g, "");
+    const loopback = host === "localhost" || host === "::1" || /^127\./.test(host);
+    if (u.protocol === "http:" && loopback) {
+    } else {
+      if (u.protocol !== "https:") throw new Error(`رابط غير آمن: ${url}`);
+      if (isPrivateHost(host)) throw new Error(`عنوان داخلي غير مسموح: ${url}`);
+    }
+    const response = await fetch(url, { ...init, redirect: "manual" });
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) return response;
+      if (redirects >= MAX_REDIRECTS) throw new Error(`تحويلات كثيرة جداً: ${url}`);
+      redirects++;
+      url = new URL(location, u).toString();
+      await response.body?.cancel?.();
+      continue;
+    }
+    return response;
+  }
+};
+var MAX_SUBTITLE_BYTES = 1e6;
+var MAX_ZIP_BYTES = 2e6;
+var MAX_UNZIPPED_BYTES = 4e6;
+var MAX_MODEL_BYTES = 256e3;
+var tooLarge = (max2) => new Error(`الملف أكبر من الحد المسموح (${max2} بايت)`);
+var readLimited = async (response, max2 = MAX_SUBTITLE_BYTES) => {
+  const declared = Number(response.headers.get("content-length") || 0);
+  if (declared > max2) {
+    await response.body?.cancel?.();
+    throw tooLarge(max2);
+  }
+  const body = response.body;
+  if (!body || typeof body.getReader !== "function") {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > max2) throw tooLarge(max2);
+    return bytes;
+  }
+  const reader = body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    for (; ; ) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);
+      total += chunk.byteLength;
+      if (total > max2) {
+        await reader.cancel();
+        throw tooLarge(max2);
+      }
+      chunks.push(chunk);
+    }
+  } catch (error) {
+    try {
+      await reader.cancel();
+    } catch {
+    }
+    throw error;
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return out;
+};
+var readTextLimited = async (response, max2 = MAX_SUBTITLE_BYTES) => new TextDecoder("utf-8").decode(await readLimited(response, max2));
+
 // lib/sources.mjs
 var AGENT = { "user-agent": "tarjuman-addon/0.2" };
 var sourceSettings = (env) => ({
@@ -210,7 +409,7 @@ var sourceSettings = (env) => ({
 var getJson = async (url, timeoutMs) => {
   const response = await fetch(url, { headers: AGENT, signal: AbortSignal.timeout(timeoutMs) });
   if (!response.ok) throw new Error(`${response.status} from ${new URL(url).host}`);
-  return response.json();
+  return JSON.parse(await readTextLimited(response));
 };
 var lists = /* @__PURE__ */ new Map();
 var LIST_TTL = 10 * 6e4;
@@ -505,7 +704,7 @@ var chat = async ({ baseUrl, apiKey, model, messages, effort, caps, signal, time
       body: JSON.stringify(body),
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout
     });
-    raw = await response.text();
+    raw = await readTextLimited(response, MAX_MODEL_BYTES);
   } catch (error) {
     if (signal?.aborted) throw new LlmError("أُلغيت الترجمة", { kind: "fatal" });
     throw new LlmError(timeout.aborted ? "مزود الـAI لم يرد في الوقت المحدد" : `تعذّر الاتصال بمزود الـAI (${error.cause?.code || error.message})`);
@@ -869,15 +1068,15 @@ Pick at most three of those moments — no more. For each, one short note of at 
 Return ONLY a JSON array: [{"find": "…", "note": "…"}]
 - "find": a phrase copied exactly from the Arabic translation of that one line (the first six to ten words of it). It is used to position the note, so it must occur in the text.
 - An empty array is fine. Prefer silence to a forced note.`;
-var normalize = (text2) => String(text2).replace(/[\u064B-\u065F\u0670\u0640\u200F\u200E]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+var normalize2 = (text2) => String(text2).replace(/[\u064B-\u065F\u0670\u0640\u200F\u200E]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 var anchorNotes = (notes, cues, out) => {
   const found = [];
   for (const note of notes) {
-    const needle = normalize(note.find).split(" ").slice(0, 8).join(" ");
+    const needle = normalize2(note.find).split(" ").slice(0, 8).join(" ");
     if (needle.length < 4) continue;
     for (let i = 0; i < cues.length; i++) {
       const text2 = out[i];
-      if (typeof text2 === "string" && normalize(text2).includes(needle)) {
+      if (typeof text2 === "string" && normalize2(text2).includes(needle)) {
         const start = cues[i].start;
         found.push({ start, end: Math.min(start + 5, cues[i].end + 4), text: `ملاحظة المترجم: ${note.note}` });
         break;
@@ -1391,23 +1590,23 @@ var startHelper = (board, llm, options = {}) => {
 
 // lib/report.mjs
 var monthKey = (now = /* @__PURE__ */ new Date()) => now.toISOString().slice(0, 7);
-var number = (value) => Number(value) || 0;
+var number2 = (value) => Number(value) || 0;
 var mergeReport = (prev, delta = {}) => ({
-  episodes: number(prev?.episodes) + number(delta.episodes),
-  tv: number(prev?.tv) + number(delta.tv),
-  film: number(prev?.film) + number(delta.film),
-  lines: number(prev?.lines) + number(delta.lines),
-  requests: number(prev?.requests) + number(delta.requests),
-  tokensP: number(prev?.tokensP) + number(delta.tokensP),
-  tokensC: number(prev?.tokensC) + number(delta.tokensC),
-  withUsage: number(prev?.withUsage) + number(delta.withUsage),
-  hits: number(prev?.hits) + number(delta.hits)
+  episodes: number2(prev?.episodes) + number2(delta.episodes),
+  tv: number2(prev?.tv) + number2(delta.tv),
+  film: number2(prev?.film) + number2(delta.film),
+  lines: number2(prev?.lines) + number2(delta.lines),
+  requests: number2(prev?.requests) + number2(delta.requests),
+  tokensP: number2(prev?.tokensP) + number2(delta.tokensP),
+  tokensC: number2(prev?.tokensC) + number2(delta.tokensC),
+  withUsage: number2(prev?.withUsage) + number2(delta.withUsage),
+  hits: number2(prev?.hits) + number2(delta.hits)
 });
 var esc = (value) => String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 var grouped = (n) => Number(n).toLocaleString("ar-u-nu-arab");
 var reportHtml = (data, monthLabel) => {
-  const empty = !data || number(data.episodes) + number(data.hits) === 0 && number(data.requests) === 0;
-  const usage = number(data?.withUsage) > 0;
+  const empty = !data || number2(data.episodes) + number2(data.hits) === 0 && number2(data.requests) === 0;
+  const usage = number2(data?.withUsage) > 0;
   const rows = empty ? `<p class="none">ما في شي لهذا الشهر بعد — أول ترجمة تكتمل أو ترجمة تُخدَم من الحفظ تُحسب هنا.</p>` : `
   <div class="kpis">
     <div><b>${grouped(data.episodes)}</b><span>ترجمة مكتملة</span></div>
@@ -1418,7 +1617,7 @@ var reportHtml = (data, monthLabel) => {
     <div><b>${grouped(data.hits)}</b><span>مرة خُدمت ترجمة من الحفظ</span></div>
   </div>
   <h2>التوكنز</h2>
-  ${usage ? `<div class="kpis"><div><b>${grouped(data.tokensP)}</b><span>توكن دُخل (input)</span></div><div><b>${grouped(data.tokensC)}</b><span>توكن خُرج (output)</span></div><div><b>${grouped(number(data.tokensP) + number(data.tokensC))}</b><span>المجموع</span></div></div>
+  ${usage ? `<div class="kpis"><div><b>${grouped(data.tokensP)}</b><span>توكن دُخل (input)</span></div><div><b>${grouped(data.tokensC)}</b><span>توكن خُرج (output)</span></div><div><b>${grouped(number2(data.tokensP) + number2(data.tokensC))}</b><span>المجموع</span></div></div>
        <p class="note">العدد من مزوّدك كما أعلنه بعد كل طلب — ما فيه تقريب وما فيه سعر؛ السعر تحدّده خطتك.</p>` : `<p class="note">مزوّدك الحالي ما يرسل إحصاءات التوكنز (بعض المزوّدين مثل Ollama أو عبر وكيل لا يرسلها) — تُعرض «الطلبات» و«السطور» بدلًا منها.</p>`}`;
   return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير ترجمان — ${esc(monthLabel)}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1"><style>
@@ -1441,157 +1640,6 @@ footer { border-top:1px solid #2a3138; margin-top:28px; padding-top:12px; color:
 ${rows}
 <footer>التقرير بشهر الميلادي الحالي. لا يُرسل أي شيء لأي طرف — يُحسب في خادم ترجمان من الطلبات المحلية للحلقة، ويُحفظ حيث تُحفظ الترجمات.</footer>
 </main></body></html>`;
-};
-
-// lib/config.mjs
-var ConfigError = class extends Error {
-};
-var number2 = (value, fallback, min, max2) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.min(max2, Math.max(min, Math.round(parsed))) : fallback;
-};
-var flag = (value, fallback) => value === void 0 ? fallback : Boolean(Number(value) || value === true);
-var EFFORTS = ["", "minimal", "low", "medium", "high"];
-var encodeText = (text2) => {
-  let binary = "";
-  for (const byte of new TextEncoder().encode(text2)) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-};
-var decodeText = (segment) => {
-  const binary = atob(segment.replace(/-/g, "+").replace(/_/g, "/"));
-  return new TextDecoder().decode(Uint8Array.from(binary, (char) => char.charCodeAt(0)));
-};
-var normalize2 = (input) => {
-  if (!input || typeof input !== "object") throw new ConfigError("الإعدادات غير مقروءة");
-  const base = String(input.b || "").trim().replace(/\/+$/, "");
-  let url;
-  try {
-    url = new URL(base);
-  } catch {
-    throw new ConfigError("رابط مزود الـAI غير صحيح");
-  }
-  if (!["https:", "http:"].includes(url.protocol)) throw new ConfigError("رابط مزود الـAI غير صحيح");
-  const model = String(input.m || "").trim();
-  if (!model || model.length > 120) throw new ConfigError("اسم النموذج مطلوب");
-  const key = String(input.k || "").trim();
-  if (key.length > 400) throw new ConfigError("مفتاح الـAI أطول من المتوقع");
-  const source = String(input.src || "eng").toLowerCase();
-  const fallbackBase = String(input.fb || "").trim().replace(/\/+$/, "");
-  if (fallbackBase) {
-    let fallbackUrl;
-    try {
-      fallbackUrl = new URL(fallbackBase);
-    } catch {
-      throw new ConfigError("رابط المزوّد الاحتياطي غير صحيح");
-    }
-    if (!["https:", "http:"].includes(fallbackUrl.protocol)) throw new ConfigError("رابط المزوّد الاحتياطي غير صحيح");
-  }
-  return {
-    b: base,
-    k: key,
-    m: model,
-    r: EFFORTS.includes(input.r) ? input.r : "",
-    src: /^[a-z]{3}$/.test(source) ? source : "eng",
-    any: flag(input.any, true),
-    warm: flag(input.warm, true),
-    sdh: flag(input.sdh, true),
-    nm: flag(input.nm, true),
-    pn: flag(input.pn, true),
-    nt: flag(input.nt, true),
-    fb: fallbackBase,
-    fk: String(input.fk || "").trim().slice(0, 400),
-    fm: String(input.fm || "").trim().slice(0, 120),
-    cf: flag(input.cf, true),
-    // na: لا تُظهر خيار الترجمة إن وُجد ترجمة عربية جاهزة — يُكتفى بالعربي من المصادر
-    na: flag(input.na, false),
-    // ca: يقارن الذكاء الاصطناعي بين الترجمات العربية الجاهزة ويختار أفضلها قبل العرض (يصرف توكنز بسيطة لكل فيديو)
-    ca: flag(input.ca, false),
-    // ex: رابط مصدر إضافي للترجمات (مثل أوكستندد/بوب كورن نوتس) — اختياري، افتراضيًا المضيف الرسمي
-    ex: String(input.ex || "").trim().slice(0, 200),
-    // مفاتيح مصادر الترجمة الإضافية (فكرة 25) — كل مستخدم يدخل مفاتيحه؛ بغيابها المزود يُتخطى صامتًا
-    sd: String(input.sd || "").trim().slice(0, 120),
-    jm: String(input.jm || "").trim().slice(0, 120),
-    n: number2(input.n, 2, 1, 3),
-    wait: number2(input.wait, 50, 0, 120),
-    bs: number2(input.bs, 80, 5, 200),
-    cc: number2(input.cc, 4, 1, 8),
-    gd: flag(input.gd, true)
-  };
-};
-var decodeConfig = (segment) => {
-  if (!/^[A-Za-z0-9_-]{8,4000}$/.test(segment)) throw new ConfigError("الإعدادات غير مقروءة");
-  let parsed;
-  try {
-    parsed = JSON.parse(decodeText(segment));
-  } catch {
-    throw new ConfigError("الإعدادات غير مقروءة");
-  }
-  return normalize2(parsed);
-};
-var IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
-var isPrivateAddress = (address) => {
-  if (IPV4.test(address)) {
-    const [a, b] = address.split(".").map(Number);
-    return a === 0 || a === 10 || a === 127 || a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168 || a === 100 && b >= 64 && b <= 127;
-  }
-  const v6 = address.toLowerCase();
-  return v6 === "::1" || v6 === "::" || v6.startsWith("fc") || v6.startsWith("fd") || v6.startsWith("fe80") || v6.startsWith("::ffff:");
-};
-var LOCAL_NAME = /(^|\.)(localhost|local|internal|lan|home\.arpa)$/i;
-var checked = /* @__PURE__ */ new Map();
-var assertProviderAllowed = async (base, { allowLocal = false, lookup } = {}) => {
-  if (allowLocal) return;
-  const url = new URL(base);
-  if (url.protocol !== "https:") throw new ConfigError("رابط مزود الـAI يجب أن يبدأ بـ https");
-  if (Date.now() - (checked.get(url.hostname) ?? 0) < 10 * 6e4) return;
-  const host = url.hostname.replace(/^\[|\]$/g, "");
-  const literal = IPV4.test(host) || host.includes(":");
-  if (!literal && LOCAL_NAME.test(host)) throw new ConfigError("عنوان مزود الـAI غير مسموح (شبكة داخلية)");
-  let addresses = [host];
-  if (!literal && lookup) {
-    try {
-      addresses = await lookup(host);
-    } catch {
-      throw new ConfigError("تعذّر الوصول إلى عنوان مزود الـAI");
-    }
-  }
-  if (!addresses.length || (literal || lookup ? addresses.some(isPrivateAddress) : false)) throw new ConfigError("عنوان مزود الـAI غير مسموح (شبكة داخلية)");
-  if (checked.size > 200) checked.clear();
-  checked.set(url.hostname, Date.now());
-};
-var MAX_REDIRECTS = 2;
-var isPrivateHost = (host) => {
-  if (IPV4.test(host)) {
-    const [a, b] = host.split(".").map(Number);
-    return a === 0 || a === 10 || a === 127 || a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168 || a === 100 && b >= 64 && b <= 127;
-  }
-  const v6 = host.toLowerCase();
-  return v6 === "::1" || v6 === "::" || v6.startsWith("fc") || v6.startsWith("fd") || v6.startsWith("fe80") || v6.startsWith("::ffff:") || LOCAL_NAME.test(host);
-};
-var safeFetch = async (input, init = {}) => {
-  let url = typeof input === "string" ? input : input.url || String(input);
-  let redirects = 0;
-  for (; ; ) {
-    const u = new URL(url);
-    const host = u.hostname.replace(/^\[|\]$/g, "");
-    const loopback = host === "localhost" || host === "::1" || /^127\./.test(host);
-    if (u.protocol === "http:" && loopback) {
-    } else {
-      if (u.protocol !== "https:") throw new Error(`رابط غير آمن: ${url}`);
-      if (isPrivateHost(host)) throw new Error(`عنوان داخلي غير مسموح: ${url}`);
-    }
-    const response = await fetch(url, { ...init, redirect: "manual" });
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get("location");
-      if (!location) return response;
-      if (redirects >= MAX_REDIRECTS) throw new Error(`تحويلات كثيرة جداً: ${url}`);
-      redirects++;
-      url = new URL(location, u).toString();
-      await response.body?.cancel?.();
-      continue;
-    }
-    return response;
-  }
 };
 
 // node_modules/fflate/esm/browser.js
@@ -2183,7 +2231,7 @@ var anilistByName = async (name, year, urls = {}) => cached(`anilist-search:${na
 var getJson2 = async (url, headers) => {
   const response = await fetch(url, { headers: { ...AGENT2, ...headers }, signal: AbortSignal.timeout(TIMEOUT) });
   if (!response.ok) throw new Error(`${response.status} from ${new URL(url).host}`);
-  return response.json();
+  return JSON.parse(await readTextLimited(response));
 };
 var subdlSearch = async ({ id, type, title, year, episode }, apiKey, urls = {}) => cached(`subdl:${id}:${type}:${episode ?? ""}:${title ? `n:${title}` : "imdb"}:${apiKey.slice(-8)}`, async () => {
   const apiBase = (urls.subdl || `https://${SUBDL_HOST}`).replace(/\/+$/, "");
@@ -2332,7 +2380,12 @@ var isPopcornUrlAllowed = (base) => {
 var SUB_EXT = /\.(srt|vtt|ass|ssa|sub)$/i;
 var PICK = [".srt", ".ass", ".ssa", ".vtt", ".sub"];
 var unzipSubtitle = (buffer, preferLang3 = "") => {
-  const entries = unzipSync(buffer);
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  const entries = unzipSync(bytes, {
+    filter: (info) => info.originalSize <= MAX_UNZIPPED_BYTES && info.size <= MAX_ZIP_BYTES
+  });
+  const inflated = Object.values(entries).reduce((sum, data) => sum + data.byteLength, 0);
+  if (inflated > MAX_UNZIPPED_BYTES) throw new Error("حزمة الترجمة أكبر من الحد المسموح");
   const best = Object.entries(entries).filter(([name]) => SUB_EXT.test(name)).sort(([a], [b]) => {
     const extA = PICK.findIndex((ext) => a.toLowerCase().endsWith(ext)), extB = PICK.findIndex((ext) => b.toLowerCase().endsWith(ext));
     const rankA = extA < 0 ? 99 : extA, rankB = extB < 0 ? 99 : extB;
@@ -2351,8 +2404,7 @@ var fetchExtraSubtitle = async (url, cfg, settings, urls = {}) => {
   if (subdlBase && url.startsWith(subdlBase.replace(/\/+$/, "")) || host === SUBDL_DL || /(^|\.)subdl\.com$/.test(host)) {
     const response2 = await safeFetch(url, { headers: AGENT2, signal: AbortSignal.timeout(25e3) });
     if (!response2.ok) throw new Error(`${response2.status} from ${host}`);
-    const buffer = new Uint8Array(await response2.arrayBuffer());
-    if (buffer.byteLength > 1e7) throw new Error("subtitle file too large");
+    const buffer = await readLimited(response2, MAX_ZIP_BYTES);
     const text3 = unzipSubtitle(buffer);
     if (text3.length > 3e6) throw new Error("subtitle file too large");
     return text3;
@@ -2361,19 +2413,19 @@ var fetchExtraSubtitle = async (url, cfg, settings, urls = {}) => {
     const headers = String(cfg?.jm || "").trim() ? { authorization: String(cfg.jm).trim() } : {};
     const response2 = await safeFetch(url, { headers: { ...AGENT2, ...headers }, signal: AbortSignal.timeout(2e4) });
     if (!response2.ok) throw new Error(`${response2.status} from ${host}`);
-    const text3 = await response2.text();
+    const text3 = await readTextLimited(response2);
     if (text3.length > 3e6) throw new Error("subtitle file too large");
     return text3;
   }
   const response = await safeFetch(url, { headers: AGENT2, signal: AbortSignal.timeout(2e4) });
   if (!response.ok) throw new Error(`${response.status} from ${host}`);
-  const text2 = await response.text();
+  const text2 = await readTextLimited(response);
   if (text2.length > 3e6) throw new Error("subtitle file too large");
   return text2;
 };
 
 // lib/app.mjs
-var VERSION = "0.9.8";
+var VERSION = "0.9.8.2";
 var CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "GET, HEAD, POST, OPTIONS" };
 var VTT = "text/vtt; charset=utf-8";
 var HEADER = "WEBVTT\n\n";
@@ -2969,7 +3021,7 @@ ${text2.slice(0, 6e3)}
     try {
       const body = await request.text();
       if (body.length > 8e3) throw new ConfigError("الطلب أكبر من المتوقع");
-      cfg = normalize2(JSON.parse(body));
+      cfg = normalize(JSON.parse(body));
       await assertProviderAllowed(cfg.b, { allowLocal: allowLocal(), lookup: platform.lookup });
     } catch (error) {
       return json(200, { ok: false, error: error instanceof ConfigError ? error.message : "الإعدادات غير مقروءة" });
@@ -3510,10 +3562,11 @@ var platformFor = (env) => {
     hasLogo: true,
     logo: () => logo ??= Uint8Array.from(atob(logo_default), (char) => char.charCodeAt(0)),
     store: env.CACHE?.get ? kvStore(env.CACHE) : noStore,
-    // The free plan allows a request 50 outgoing requests and cuts it off 30 seconds after its client leaves.
-    // On a paid plan HELPER_BUDGET can be raised.
+    // Free plan: 50 subrequests/request and 30 s after the client leaves. 32 model calls leave a real
+    // margin for the source list, the extra providers, the verification downloads and the KV writes.
+    // On a paid plan HELPER_BUDGET can be raised again.
     limits: {
-      budget: number3("HELPER_BUDGET", 40),
+      budget: number3("HELPER_BUDGET", 32),
       lingerMs: number3("LINGER_MS", 18e3),
       progressEveryMs: number3("PROGRESS_EVERY_MS", 15e3),
       maxBoards: 12,

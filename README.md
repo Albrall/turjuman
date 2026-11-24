@@ -6,7 +6,7 @@ A self-hosted Stremio add-on that finds the subtitle matching your file and tran
 
 - **Quick start:** `npm ci && npm test && npm run build && npm start` — then open `http://localhost:7000/configure`.
 - **Cloudflare:** `CLOUDFLARE_API_TOKEN=… node deploy.mjs` (see [SECURITY.md](SECURITY.md)).
-- **Status:** 251/251 tests green · CI builds the bundle and attaches `tarjuman-cloudflare.zip` to every `v*` release.
+- **Status:** 255/255 tests green · CI builds the bundle and attaches `tarjuman-cloudflare.zip` to every `v*` release.
 - **Docs:** [incident report](docs/INCIDENT-0.9.8-ar.md) · [code review (ar)](docs/REVIEW-ar.md) · [roadmap (ar)](docs/ROADMAP-ar.md) · [changelog](CHANGELOG.md).
 
 > Repo name is `turjuman`; the add-on id is `community.tarjuman.arabic-ai` and the Worker is `tarjuman`.
@@ -149,7 +149,7 @@ node server.mjs
 | `CACHE_DIR` | مجلد حفظ الترجمات المكتملة (Node) | `./cache` |
 | `CACHE` | ربط مساحة KV (Cloudflare) | بلا حفظ |
 | `ALLOW_LOCAL_AI` | ضعه `1` للسماح بمزوّد على الشبكة المحلية أو عبر http (مثل Ollama) | غير مفعّل |
-| `HELPER_BUDGET` | عدد طلبات النموذج المسموحة في الطلب الواحد (Cloudflare؛ يُرفع على الخطة المدفوعة، ولا يُنزل عن 12) | `40` |
+| `HELPER_BUDGET` | عدد طلبات النموذج المسموحة في الطلب الواحد (Cloudflare؛ 32 على المجانية لترك هامش من أصل 50 طلباً فرعياً، ويُرفع على المدفوعة) | `32` |
 | `NOTICE` | رسالة من مشغّل الخادم تظهر أعلى صفحة الإعدادات | لا شيء |
 | `TRUST_PROXY` | `1` للسماح بقراءة `x-forwarded-host/proto` خلف بروكسي موثوق | غير مفعّل |
 | `LINGER_MS` | مدة استمرار الترجمة بعد إجابة الطلب (Cloudflare) | `18000` |
@@ -188,7 +188,7 @@ npm test
 npm run build # يعيد بناء cloudflare/_worker.js والـzip بعد أي تعديل
 ```
 
-251 اختبارًا تعمل بلا إنترنت، وكلها تنجح في CI أمام مزوّد وهمي يحاكي الأعطال (وأوهام SubDL وJimaku وKitsu وأنيلست). نسخة Cloudflare تُختبر داخل workerd، وهو المحرّك الذي تشغّله Cloudflare نفسها.
+255 اختبارًا تعمل بلا إنترنت، وكلها تنجح في CI أمام مزوّد وهمي يحاكي الأعطال (وأوهام SubDL وJimaku وKitsu وأنيلست). نسخة Cloudflare تُختبر داخل workerd، وهو المحرّك الذي تشغّله Cloudflare نفسها.
 
 ## حدود معروفة
 
